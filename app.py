@@ -230,7 +230,8 @@ def green_api_url(config, method):
 @app.route("/webhook", methods=["POST"])
 def webhook():
     payload = request.get_json(silent=True) or {}
-    log.info("Webhook received: %s", json.dumps(payload)[:300])
+    log.info("Webhook received: %s", json.dumps(payload)[:500])
+    log.info("typeWebhook=%s typeMessage=%s", type_, body.get("messageData", {}).get("typeMessage", ""))
 
     body = payload.get("body", {})
     type_ = payload.get("typeWebhook", "")
