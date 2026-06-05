@@ -393,8 +393,8 @@ def get_message_from_history(chat_id: str, stanza_id: str = "") -> str:
         if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
             return ""
         url = green_api_url(cfg, "getChatHistory")
-        r = http_requests.post(url, json={"chatId": chat_id, "count": 50}, timeout=10)
-        log.info("getChatHistory status=%s body=%s", r.status_code, r.text[:200])
+        r = http_requests.post(url, json={"chatId": chat_id, "count": 100}, timeout=15)
+        log.info("getChatHistory status=%s count=%d", r.status_code, len(r.json()) if r.ok else 0)
         messages = r.json()
         if not isinstance(messages, list):
             return ""
@@ -408,11 +408,15 @@ def get_message_from_history(chat_id: str, stanza_id: str = "") -> str:
                 or ""
             )
 
-        # find by stanzaId if provided
+        # find by stanzaId if provided (try multiple ID fields)
         if stanza_id:
             for msg in messages:
-                if msg.get("idMessage") == stanza_id:
-                    return extract_text(msg.get("messageData", {}))
+                if (msg.get("idMessage") == stanza_id or
+                    msg.get("stanzaId") == stanza_id or
+                    msg.get("messageData", {}).get("stanzaId") == stanza_id):
+                    text = extract_text(msg.get("messageData", {}))
+                    if text:
+                        return text
 
         # fallback: last non-reaction message
         for msg in reversed(messages):
