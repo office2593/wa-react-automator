@@ -356,6 +356,26 @@ def green_api_url(config, method):
     )
 
 
+def get_contact_name(chat_id: str) -> str:
+    """Get contact name from GREEN API by chatId."""
+    try:
+        cfg = load_config()
+        if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
+            return ""
+        url = green_api_url(cfg, "getContactInfo")
+        r = http_requests.post(url, json={"chatId": chat_id}, timeout=5)
+        data = r.json()
+        return (
+            data.get("name") or
+            data.get("pushname") or
+            data.get("contactName") or
+            ""
+        )
+    except Exception as e:
+        log.warning("Could not get contact name: %s", e)
+        return ""
+
+
 # ── webhook ───────────────────────────────────────────────────────────────────
 
 @app.route("/webhook", methods=["POST"])
@@ -394,8 +414,10 @@ def webhook():
     log.info("Reaction emoji detected: %r", reaction)
     msg_data   = body.get("messageData", {})
     sender      = payload.get("senderData", {}).get("sender", "") or body.get("senderData", {}).get("sender", "")
-    sender_name = payload.get("senderData", {}).get("senderName", "") or body.get("senderData", {}).get("senderName", "")
     chat_id     = payload.get("senderData", {}).get("chatId", "") or body.get("senderData", {}).get("chatId", "")
+    # get contact name (the person in the chat, not the reactor)
+    contact_name = get_contact_name(chat_id) if chat_id else ""
+    sender_name  = contact_name or payload.get("senderData", {}).get("senderName", "") or body.get("senderData", {}).get("senderName", "")
     orig_text  = (
         msg_data.get("extendedTextMessageData", {}).get("text", "")
         or msg_data.get("textMessageData", {}).get("textMessage", "")
