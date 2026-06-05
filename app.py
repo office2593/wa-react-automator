@@ -364,6 +364,7 @@ def fetch_and_save_contacts() -> dict:
             return {}
         url = green_api_url(cfg, "getContacts")
         r = http_requests.get(url, timeout=15)
+        log.info("getContacts status: %s body: %s", r.status_code, r.text[:300])
         contacts_list = r.json()
         contacts = {}
         for c in contacts_list:
