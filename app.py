@@ -384,6 +384,35 @@ def fetch_and_save_contacts() -> dict:
         return {}
 
 
+def get_original_message(chat_id: str, message_id: str) -> str:
+    """Fetch original message text from GREEN API. Returns empty string on any failure."""
+    if not chat_id or not message_id:
+        return ""
+    try:
+        cfg = load_config()
+        if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
+            return ""
+        url = green_api_url(cfg, "getChatHistory")
+        r = http_requests.post(url, json={"chatId": chat_id, "count": 50}, timeout=10)
+        messages = r.json()
+        if not isinstance(messages, list):
+            return ""
+        for msg in messages:
+            if msg.get("idMessage") == message_id:
+                md = msg.get("messageData", {})
+                return (
+                    md.get("textMessageData", {}).get("textMessage", "")
+                    or md.get("extendedTextMessageData", {}).get("text", "")
+                    or md.get("imageMessageData", {}).get("caption", "")
+                    or md.get("documentMessageData", {}).get("caption", "")
+                    or ""
+                )
+        return ""
+    except Exception as e:
+        log.warning("Could not fetch original message: %s", e)
+        return ""
+
+
 def get_contact_name(chat_id: str) -> str:
     """Get contact name from local DB cache."""
     contacts = db_get("contacts", {})
@@ -451,12 +480,20 @@ def webhook():
     # get contact name (the person in the chat, not the reactor)
     contact_name = get_contact_name(chat_id) if chat_id else ""
     sender_name  = contact_name or payload.get("senderData", {}).get("senderName", "") or body.get("senderData", {}).get("senderName", "")
-    orig_text  = (
+    # try to get original message text from webhook first, then fetch from GREEN API
+    orig_text = (
         msg_data.get("extendedTextMessageData", {}).get("text", "")
         or msg_data.get("textMessageData", {}).get("textMessage", "")
         or msg_data.get("quotedMessage", {}).get("textMessage", "")
         or ""
     )
+    if not orig_text:
+        reacted_msg_id = (
+            msg_data_outer.get("reactionMessage", {}).get("messageId", "")
+            or body.get("messageData", {}).get("reactionMessage", {}).get("messageId", "")
+        )
+        if reacted_msg_id:
+            orig_text = get_original_message(chat_id, reacted_msg_id)
     timestamp  = datetime.utcnow().isoformat()
 
     rules = load_rules()
