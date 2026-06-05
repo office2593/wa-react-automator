@@ -238,12 +238,20 @@ def webhook():
     if type_ != "outgoingMessageReaction" and type_ != "incomingMessageReaction":
         return jsonify({"ok": True}), 200
 
+    # GREEN API reaction paths (try all known formats)
     _reaction_field = body.get("reaction", {})
     reaction = (
         _reaction_field.get("reaction", "")
         if isinstance(_reaction_field, dict)
-        else str(_reaction_field)
+        else str(_reaction_field) if _reaction_field else ""
     )
+    if not reaction:
+        reaction = (
+            body.get("messageData", {})
+                .get("reactionMessage", {})
+                .get("reaction", "")
+        )
+    log.info("Reaction emoji: %r", reaction)
     msg_data   = body.get("messageData", {})
     sender     = body.get("senderData", {}).get("sender", "")
     chat_id    = body.get("senderData", {}).get("chatId", "")
