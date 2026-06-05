@@ -449,7 +449,7 @@ function openNewRule() {
   document.getElementById('rule-name').value = '';
   document.getElementById('rule-emoji').value = '';
   document.getElementById('rule-email-to').value = '';
-  document.getElementById('rule-subject').value = 'משימה חדשה ממשרד רואה החשבון';
+  document.getElementById('rule-subject').value = '{{sender}} — משימה חדשה';
   document.getElementById('rule-body').value = 'שלום,\n\nהתקבלה משימה חדשה:\n\nמאת: {{sender}}\nהודעה: {{message}}\nזמן: {{time}}';
   renderVarChips();
   updatePreview();
@@ -469,14 +469,13 @@ function openEditRule(r) {
 }
 
 function renderVarChips() {
-  ['chips-subject', 'chips-body'].forEach((id, i) => {
-    const targetId = i === 0 ? 'rule-subject' : 'rule-body';
-    document.getElementById(id).innerHTML = VARS.map(v =>
-      `<span class="var-chip" onclick="insertVar('${targetId}','${v.key}')">
-        <span class="chip-icon">${v.icon}</span>${v.label}
-       </span>`
-    ).join('');
-  });
+  const el = document.getElementById('chips-body');
+  if (!el) return;
+  el.innerHTML = VARS.map(v =>
+    `<span class="var-chip" onclick="insertVar('rule-body','${v.key}')">
+      <span class="chip-icon">${v.icon}</span>${v.label}
+     </span>`
+  ).join('');
 }
 
 function insertVar(fieldId, varKey) {
