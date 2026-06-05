@@ -369,7 +369,7 @@ def fetch_and_save_contacts() -> dict:
         contacts = {}
         for c in contacts_list:
             chat_id = c.get("id", "")
-            name = c.get("name") or c.get("pushname") or ""
+            name = c.get("contactName") or c.get("name") or c.get("pushname") or ""
             if chat_id and name:
                 contacts[chat_id] = name
             # log first 3 contacts to see field structure
