@@ -302,6 +302,16 @@
         <div class="field"><label>Instance ID</label><input id="green-instance" placeholder="1234567890" /></div>
         <div class="field"><label>API Token</label><input id="green-token" type="password" placeholder="••••••••" /></div>
       </div>
+      <!-- אנשי קשר -->
+      <div style="margin-bottom:16px;padding:14px 16px;background:var(--grad-light);border-radius:10px;border:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-size:1.2rem">👥</span>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:.9rem;color:var(--purple-dark)">אנשי קשר</div>
+          <div style="font-size:.8rem;color:var(--muted)" id="contacts-status">טוען...</div>
+        </div>
+        <button class="btn btn-ghost" onclick="refreshContacts()" id="btn-refresh-contacts">🔄 רענן</button>
+      </div>
+
       <div class="field">
         <label>Webhook URL — העתק ל-GREEN API Console</label>
         <input id="webhook-url" readonly style="background:#f8f4fc;cursor:pointer;font-family:monospace;font-size:.85rem" onclick="this.select();document.execCommand('copy');showToast('הועתק!')" />
@@ -622,6 +632,7 @@ async function loadSettings() {
   document.getElementById('green-instance').value = cfg.green_instance_id || '';
   document.getElementById('green-token').value    = cfg.green_api_token   || '';
   checkGmailStatus();
+  loadContactsStatus();
 }
 
 async function saveGreenConfig() {
@@ -630,6 +641,33 @@ async function saveGreenConfig() {
     green_api_token:   document.getElementById('green-token').value.trim(),
   })});
   showToast('הגדרות GREEN API נשמרו ✓');
+}
+
+async function loadContactsStatus() {
+  const res = await (await fetch('/api/contacts/status')).json();
+  const el = document.getElementById('contacts-status');
+  if (res.count > 0) {
+    const t = res.updated ? ' · עודכן ' + fmtTime(res.updated) : '';
+    el.textContent = res.count + ' אנשי קשר שמורים' + t;
+  } else {
+    el.textContent = 'לא נטענו אנשי קשר — לחץ רענן';
+  }
+}
+
+async function refreshContacts() {
+  const btn = document.getElementById('btn-refresh-contacts');
+  const el  = document.getElementById('contacts-status');
+  btn.disabled = true;
+  el.textContent = 'טוען אנשי קשר...';
+  const res = await (await fetch('/api/contacts/refresh', {method:'POST'})).json();
+  btn.disabled = false;
+  if (res.ok) {
+    el.textContent = res.count + ' אנשי קשר נטענו בהצלחה · ' + fmtTime(res.updated);
+    showToast('✓ ' + res.count + ' אנשי קשר עודכנו');
+  } else {
+    el.textContent = 'שגיאה בטעינה';
+    showToast('שגיאה בטעינת אנשי קשר', true);
+  }
 }
 
 async function testGreen() {
