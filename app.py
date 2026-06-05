@@ -428,11 +428,16 @@ def get_contact_name(chat_id: str) -> str:
 
 
 # background contact refresh (every hour)
-import threading
+import threading, time as _time
+
 def _contact_refresh_loop():
-    import time
     while True:
-        time.sleep(3600)
+        interval_mins = db_get("contacts_interval_mins", 60)
+        try:
+            interval_mins = int(interval_mins)
+        except Exception:
+            interval_mins = 60
+        _time.sleep(max(1, interval_mins) * 60)
         fetch_and_save_contacts()
 
 threading.Thread(target=_contact_refresh_loop, daemon=True).start()
@@ -488,10 +493,14 @@ def webhook():
         or ""
     )
     if not orig_text:
+        reaction_msg = msg_data_outer.get("reactionMessage", {})
+        log.info("reactionMessage fields: %s", json.dumps(reaction_msg)[:300])
         reacted_msg_id = (
-            msg_data_outer.get("reactionMessage", {}).get("messageId", "")
-            or body.get("messageData", {}).get("reactionMessage", {}).get("messageId", "")
+            reaction_msg.get("messageId", "")
+            or reaction_msg.get("idMessage", "")
+            or reaction_msg.get("stanzaId", "")
         )
+        log.info("reacted_msg_id: %r", reacted_msg_id)
         if reacted_msg_id:
             orig_text = get_original_message(chat_id, reacted_msg_id)
     timestamp  = datetime.utcnow().isoformat()
@@ -678,6 +687,20 @@ def gmail_disconnect():
     if DATABASE_URL and POSTGRES_AVAILABLE:
         db_set("gmail_token", None)
     return jsonify({"ok": True})
+
+
+@app.route("/api/contacts/interval", methods=["POST"])
+def set_contacts_interval():
+    data = request.get_json()
+    mins = int(data.get("mins", 60))
+    db_set("contacts_interval_mins", mins)
+    return jsonify({"ok": True, "mins": mins})
+
+
+@app.route("/api/contacts/interval", methods=["GET"])
+def get_contacts_interval():
+    mins = db_get("contacts_interval_mins", 60)
+    return jsonify({"mins": mins})
 
 
 @app.route("/api/contacts/refresh", methods=["POST"])
