@@ -384,12 +384,15 @@ def fetch_and_save_contacts() -> dict:
 def get_contact_name(chat_id: str) -> str:
     """Get contact name from local DB cache."""
     contacts = db_get("contacts", {})
-    # try exact match, then without @c.us suffix
-    return (
+    name = (
         contacts.get(chat_id) or
         contacts.get(chat_id.replace("@c.us", "") + "@c.us") or
+        contacts.get(chat_id.replace("@c.us", "")) or
         ""
     )
+    log.info("get_contact_name chatId=%s found=%r (total contacts: %d, sample keys: %s)",
+             chat_id, name, len(contacts), list(contacts.keys())[:3])
+    return name
 
 
 # background contact refresh (every hour)
