@@ -238,7 +238,12 @@ def webhook():
     if type_ != "outgoingMessageReaction" and type_ != "incomingMessageReaction":
         return jsonify({"ok": True}), 200
 
-    reaction   = body.get("reaction", {}).get("reaction", "")
+    _reaction_field = body.get("reaction", {})
+    reaction = (
+        _reaction_field.get("reaction", "")
+        if isinstance(_reaction_field, dict)
+        else str(_reaction_field)
+    )
     msg_data   = body.get("messageData", {})
     sender     = body.get("senderData", {}).get("sender", "")
     chat_id    = body.get("senderData", {}).get("chatId", "")
