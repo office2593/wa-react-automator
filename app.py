@@ -235,10 +235,19 @@ def webhook():
     body = payload.get("body", {})
     type_ = payload.get("typeWebhook", "")
 
-    if type_ != "outgoingMessageReaction" and type_ != "incomingMessageReaction":
+    # detect reaction webhooks (GREEN API sends several formats)
+    msg_data_outer = body.get("messageData", {})
+    type_message = msg_data_outer.get("typeMessage", "")
+    is_reaction = (
+        type_ in ("outgoingMessageReaction", "incomingMessageReaction")
+        or type_message == "reactionMessage"
+        or (type_ in ("outgoingMessageReceived", "incomingMessageReceived")
+            and type_message == "reactionMessage")
+    )
+    if not is_reaction:
         return jsonify({"ok": True}), 200
 
-    # GREEN API reaction paths (try all known formats)
+    # extract reaction emoji (try all known paths)
     _reaction_field = body.get("reaction", {})
     reaction = (
         _reaction_field.get("reaction", "")
@@ -247,11 +256,10 @@ def webhook():
     )
     if not reaction:
         reaction = (
-            body.get("messageData", {})
-                .get("reactionMessage", {})
-                .get("reaction", "")
+            msg_data_outer.get("reactionMessage", {}).get("reaction", "")
+            or msg_data_outer.get("extendedTextMessageData", {}).get("text", "")
         )
-    log.info("Reaction emoji: %r", reaction)
+    log.info("Reaction emoji detected: %r", reaction)
     msg_data   = body.get("messageData", {})
     sender     = body.get("senderData", {}).get("sender", "")
     chat_id    = body.get("senderData", {}).get("chatId", "")
