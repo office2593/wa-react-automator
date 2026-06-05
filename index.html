@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WhatsApp React → Gmail</title>
+<style>
+  :root {
+    --green: #25D366;
+    --dark-green: #128C7E;
+    --light-green: #DCF8C6;
+    --bg: #f0f2f5;
+    --white: #fff;
+    --border: #e0e0e0;
+    --text: #111;
+    --muted: #667;
+    --red: #e53935;
+    --blue: #1976d2;
+    --radius: 12px;
+    --shadow: 0 2px 12px rgba(0,0,0,.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); }
+
+  /* ── layout ── */
+  header {
+    background: var(--dark-green);
+    color: #fff;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.2);
+  }
+  header h1 { font-size: 1.2rem; font-weight: 700; }
+  header .badge { background: var(--green); border-radius: 20px; padding: 2px 12px; font-size: .8rem; }
+
+  nav {
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 4px;
+    padding: 0 24px;
+  }
+  nav button {
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 14px 18px;
+    cursor: pointer;
+    font-size: .95rem;
+    color: var(--muted);
+    transition: color .15s, border-color .15s;
+  }
+  nav button.active { color: var(--dark-green); border-bottom-color: var(--dark-green); font-weight: 600; }
+
+  main { max-width: 960px; margin: 28px auto; padding: 0 16px; }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* ── cards ── */
+  .card {
+    background: var(--white);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; color: var(--dark-green); }
+
+  /* ── form elements ── */
+  label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: 4px; color: var(--muted); }
+  input, textarea, select {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: .95rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color .15s;
+    background: var(--white);
+  }
+  input:focus, textarea:focus, select:focus { border-color: var(--green); }
+  textarea { resize: vertical; min-height: 90px; }
+
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px; }
+  .form-row.single { grid-template-columns: 1fr; }
+  .field { margin-bottom: 14px; }
+
+  /* ── buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 20px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: .9rem;
+    font-weight: 600;
+    transition: filter .15s, opacity .15s;
+  }
+  .btn:hover { filter: brightness(1.07); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn-primary { background: var(--green); color: #fff; }
+  .btn-danger  { background: var(--red); color: #fff; }
+  .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+  .btn-blue { background: var(--blue); color: #fff; }
+
+  /* ── rules list ── */
+  .rules-grid { display: flex; flex-direction: column; gap: 12px; }
+  .rule-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: box-shadow .15s;
+  }
+  .rule-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+  .rule-emoji { font-size: 2rem; min-width: 48px; text-align: center; }
+  .rule-info { flex: 1; }
+  .rule-info strong { display: block; font-size: .95rem; }
+  .rule-info small { color: var(--muted); font-size: .82rem; }
+  .rule-actions { display: flex; gap: 8px; }
+  .toggle { cursor: pointer; }
+  .badge-active   { background: #e8f5e9; color: #2e7d32; border-radius: 20px; padding: 2px 10px; font-size: .78rem; font-weight: 700; }
+  .badge-inactive { background: #fce4ec; color: #c62828; border-radius: 20px; padding: 2px 10px; font-size: .78rem; font-weight: 700; }
+
+  /* ── modal ── */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--white);
+    border-radius: var(--radius);
+    padding: 28px;
+    width: 520px;
+    max-width: 96vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+  }
+  .modal h3 { margin-bottom: 20px; font-size: 1.1rem; color: var(--dark-green); }
+  .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+  /* ── log table ── */
+  .log-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  .log-table th { background: var(--bg); padding: 9px 12px; text-align: right; font-weight: 700; color: var(--muted); border-bottom: 2px solid var(--border); }
+  .log-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .log-table tr:last-child td { border-bottom: none; }
+  .status-sent  { color: #2e7d32; font-weight: 700; }
+  .status-error { color: var(--red); font-weight: 700; }
+  .status-no_rule { color: var(--muted); }
+
+  /* ── connection cards ── */
+  .conn-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .conn-dot { width: 12px; height: 12px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
+  .conn-dot.ok { background: var(--green); }
+  .conn-dot.err { background: var(--red); }
+  .conn-label { font-weight: 700; font-size: .95rem; }
+  .conn-status { color: var(--muted); font-size: .85rem; flex: 1; }
+
+  .hint { font-size: .82rem; color: var(--muted); margin-top: 6px; }
+  .hint a { color: var(--blue); }
+
+  .emoji-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .emoji-pick button {
+    font-size: 1.5rem;
+    background: var(--bg);
+    border: 2px solid transparent;
+    border-radius: 8px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  .emoji-pick button.selected { border-color: var(--green); background: var(--light-green); }
+
+  .placeholder-hint { font-size: .8rem; color: var(--muted); margin-top: 4px; }
+
+  .alert { border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: .88rem; }
+  .alert-success { background: #e8f5e9; color: #1b5e20; }
+  .alert-error   { background: #ffebee; color: #b71c1c; }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px; font-size: .95rem; }
+
+  @media (max-width: 600px) {
+    .form-row { grid-template-columns: 1fr; }
+    main { padding: 0 8px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:1.8rem">💬</span>
+  <h1>WhatsApp React → Gmail</h1>
+  <span class="badge">אוטומציה</span>
+</header>
+
+<nav>
+  <button class="active" onclick="showPage('rules')">📋 כללים</button>
+  <button onclick="showPage('log')">📜 היסטוריה</button>
+  <button onclick="showPage('settings')">⚙️ הגדרות</button>
+</nav>
+
+<main>
+
+  <!-- ═══ RULES PAGE ═══ -->
+  <div id="page-rules" class="page active">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <h2 style="margin:0">כללי אוטומציה</h2>
+        <button class="btn btn-primary" onclick="openNewRule()">+ כלל חדש</button>
+      </div>
+      <div id="rules-list" class="rules-grid">
+        <div class="empty">טוען...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ LOG PAGE ═══ -->
+  <div id="page-log" class="page">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <h2 style="margin:0">היסטוריית פעולות</h2>
+        <button class="btn btn-secondary" onclick="loadLog()">🔄 רענן</button>
+      </div>
+      <div id="log-container">
+        <div class="empty">טוען...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SETTINGS PAGE ═══ -->
+  <div id="page-settings" class="page">
+
+    <!-- GREEN API -->
+    <div class="card">
+      <h2>🟢 GREEN API (WhatsApp)</h2>
+      <div id="green-status-row" class="conn-row" style="margin-bottom:16px">
+        <div class="conn-dot" id="green-dot"></div>
+        <span class="conn-label">GREEN API</span>
+        <span class="conn-status" id="green-status-text">לא נבדק</span>
+        <button class="btn btn-secondary" onclick="testGreen()">בדוק חיבור</button>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Instance ID</label>
+          <input id="green-instance" placeholder="1234567890" />
+        </div>
+        <div class="field">
+          <label>API Token</label>
+          <input id="green-token" type="password" placeholder="••••••••" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Webhook URL לעדכן ב-GREEN API</label>
+        <input id="webhook-url" readonly style="background:#f5f5f5;cursor:pointer" onclick="this.select()" />
+        <p class="hint">העתק את הכתובת הזו ל-<a href="https://console.green-api.com" target="_blank">GREEN API Console</a> → Settings → Webhook URL</p>
+      </div>
+      <button class="btn btn-primary" onclick="saveGreenConfig()">שמור</button>
+    </div>
+
+    <!-- GMAIL -->
+    <div class="card">
+      <h2>📧 Gmail</h2>
+      <div class="conn-row" style="margin-bottom:16px">
+        <div class="conn-dot" id="gmail-dot"></div>
+        <span class="conn-label">Gmail</span>
+        <span class="conn-status" id="gmail-status-text">בודק...</span>
+        <button class="btn btn-blue" id="btn-gmail-connect" onclick="connectGmail()">חבר חשבון Gmail</button>
+        <button class="btn btn-secondary" id="btn-gmail-disconnect" onclick="disconnectGmail()" style="display:none">נתק</button>
+      </div>
+      <div class="hint">
+        כדי לחבר Gmail צריך:
+        <ol style="margin-top:6px;padding-right:18px;line-height:1.8">
+          <li>ב-<a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> צור פרויקט ואפשר Gmail API</li>
+          <li>צור OAuth 2.0 Client ID (Desktop App)</li>
+          <li>הורד את <code>client_secrets.json</code> ושמור ב-<code>data/client_secrets.json</code></li>
+          <li>לחץ "חבר חשבון Gmail"</li>
+        </ol>
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<!-- ═══ RULE MODAL ═══ -->
+<div class="modal-overlay" id="rule-modal">
+  <div class="modal">
+    <h3 id="modal-title">כלל חדש</h3>
+    <input type="hidden" id="rule-id" />
+
+    <div class="field">
+      <label>שם הכלל</label>
+      <input id="rule-name" placeholder="לדוגמה: אישור עסקה" />
+    </div>
+
+    <div class="field">
+      <label>אמוג'י שמפעיל את הכלל</label>
+      <div class="emoji-pick" id="emoji-pick">
+        <!-- populated by JS -->
+      </div>
+      <input id="rule-emoji" placeholder="או הקלד אמוג'י ידנית" style="margin-top:10px" />
+    </div>
+
+    <div class="field">
+      <label>שלח מייל אל</label>
+      <input id="rule-email-to" type="email" placeholder="someone@example.com" />
+    </div>
+
+    <div class="field">
+      <label>נושא המייל</label>
+      <input id="rule-subject" placeholder="לדוגמה: לקוח הגיב 👍" />
+    </div>
+
+    <div class="field">
+      <label>תוכן המייל</label>
+      <textarea id="rule-body" placeholder="תוכן המייל..."></textarea>
+      <div class="placeholder-hint">
+        משתנים זמינים: <code>{{emoji}}</code> <code>{{sender}}</code> <code>{{message}}</code> <code>{{chat}}</code> <code>{{time}}</code>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveRule()">שמור כלל</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const EMOJIS = ['👍','❤️','😂','😮','😢','🙏','✅','🔥','👏','⭐','💪','🎉','👀','💰','✔️','❌','🚀','📌','📞','📧'];
+
+let editingId = null;
+
+// ── navigation ──────────────────────────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  event.target.classList.add('active');
+  if (name === 'rules') loadRules();
+  if (name === 'log') loadLog();
+  if (name === 'settings') loadSettings();
+}
+
+// ── rules ───────────────────────────────────────────────────────────────────
+async function loadRules() {
+  const res = await fetch('/api/rules');
+  const rules = await res.json();
+  const el = document.getElementById('rules-list');
+  if (!rules.length) { el.innerHTML = '<div class="empty">אין כללים עדיין. לחץ "+ כלל חדש" כדי להוסיף.</div>'; return; }
+  el.innerHTML = rules.map(r => `
+    <div class="rule-card">
+      <div class="rule-emoji">${r.emoji || '❓'}</div>
+      <div class="rule-info">
+        <strong>${esc(r.name || 'ללא שם')}</strong>
+        <small>→ ${esc(r.email_to || '')} · ${esc(r.email_subject || '')}</small>
+      </div>
+      <span class="${r.active ? 'badge-active' : 'badge-inactive'} toggle" onclick="toggleRule('${r.id}',${!r.active})">
+        ${r.active ? 'פעיל' : 'כבוי'}
+      </span>
+      <div class="rule-actions">
+        <button class="btn btn-secondary" onclick="openEditRule(${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️</button>
+        <button class="btn btn-danger" onclick="deleteRule('${r.id}')">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+function openNewRule() {
+  editingId = null;
+  document.getElementById('modal-title').textContent = 'כלל חדש';
+  document.getElementById('rule-id').value = '';
+  document.getElementById('rule-name').value = '';
+  document.getElementById('rule-emoji').value = '';
+  document.getElementById('rule-email-to').value = '';
+  document.getElementById('rule-subject').value = '';
+  document.getElementById('rule-body').value = 'הודעה חדשה ב-WhatsApp!\n\nשולח: {{sender}}\nאמוג\'י: {{emoji}}\nהודעה מקורית: {{message}}\n\nזמן: {{time}}';
+  renderEmojiPicker('');
+  document.getElementById('rule-modal').classList.add('open');
+}
+
+function openEditRule(r) {
+  editingId = r.id;
+  document.getElementById('modal-title').textContent = 'עריכת כלל';
+  document.getElementById('rule-id').value = r.id;
+  document.getElementById('rule-name').value = r.name || '';
+  document.getElementById('rule-emoji').value = r.emoji || '';
+  document.getElementById('rule-email-to').value = r.email_to || '';
+  document.getElementById('rule-subject').value = r.email_subject || '';
+  document.getElementById('rule-body').value = r.email_body || '';
+  renderEmojiPicker(r.emoji || '');
+  document.getElementById('rule-modal').classList.add('open');
+}
+
+function renderEmojiPicker(selected) {
+  document.getElementById('emoji-pick').innerHTML = EMOJIS.map(e =>
+    `<button type="button" class="${e===selected?'selected':''}" onclick="pickEmoji('${e}')">${e}</button>`
+  ).join('');
+}
+
+function pickEmoji(e) {
+  document.getElementById('rule-emoji').value = e;
+  renderEmojiPicker(e);
+}
+
+document.getElementById('rule-emoji').addEventListener('input', function() {
+  renderEmojiPicker(this.value);
+});
+
+function closeModal() {
+  document.getElementById('rule-modal').classList.remove('open');
+}
+
+async function saveRule() {
+  const rule = {
+    name:          document.getElementById('rule-name').value.trim(),
+    emoji:         document.getElementById('rule-emoji').value.trim(),
+    email_to:      document.getElementById('rule-email-to').value.trim(),
+    email_subject: document.getElementById('rule-subject').value.trim(),
+    email_body:    document.getElementById('rule-body').value,
+  };
+  if (!rule.emoji || !rule.email_to) { alert('אמוג\'י וכתובת מייל הם שדות חובה'); return; }
+
+  if (editingId) {
+    await fetch('/api/rules/' + editingId, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(rule) });
+  } else {
+    await fetch('/api/rules', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(rule) });
+  }
+  closeModal();
+  loadRules();
+}
+
+async function toggleRule(id, active) {
+  await fetch('/api/rules/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({active}) });
+  loadRules();
+}
+
+async function deleteRule(id) {
+  if (!confirm('למחוק את הכלל?')) return;
+  await fetch('/api/rules/' + id, { method: 'DELETE' });
+  loadRules();
+}
+
+// ── log ─────────────────────────────────────────────────────────────────────
+async function loadLog() {
+  const res = await fetch('/api/log');
+  const entries = await res.json();
+  const el = document.getElementById('log-container');
+  if (!entries.length) { el.innerHTML = '<div class="empty">אין פעולות עדיין.</div>'; return; }
+  el.innerHTML = `<table class="log-table">
+    <thead><tr><th>זמן</th><th>אמוג'י</th><th>שולח</th><th>מייל נשלח אל</th><th>סטטוס</th><th>הודעה</th></tr></thead>
+    <tbody>${entries.map(e => `
+      <tr>
+        <td>${fmtTime(e.time)}</td>
+        <td style="font-size:1.4rem">${esc(e.emoji||'')}</td>
+        <td>${esc(e.sender||'')}</td>
+        <td>${esc(e.email_to||'')}</td>
+        <td class="status-${e.status||''}">${esc(e.status||'')}</td>
+        <td>${esc(e.message||e.rule_name||'')}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+// ── settings ─────────────────────────────────────────────────────────────────
+async function loadSettings() {
+  // webhook url
+  document.getElementById('webhook-url').value = window.location.origin + '/webhook';
+  // green config
+  const cfg = await (await fetch('/api/config')).json();
+  document.getElementById('green-instance').value = cfg.green_instance_id || '';
+  document.getElementById('green-token').value = cfg.green_api_token || '';
+  // gmail status
+  checkGmailStatus();
+}
+
+async function saveGreenConfig() {
+  const data = {
+    green_instance_id: document.getElementById('green-instance').value.trim(),
+    green_api_token:   document.getElementById('green-token').value.trim(),
+  };
+  await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+  showToast('הגדרות GREEN API נשמרו');
+}
+
+async function testGreen() {
+  const dot  = document.getElementById('green-dot');
+  const text = document.getElementById('green-status-text');
+  text.textContent = 'בודק...';
+  // save first
+  await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+    green_instance_id: document.getElementById('green-instance').value.trim(),
+    green_api_token:   document.getElementById('green-token').value.trim(),
+  })});
+  const res = await (await fetch('/api/green/test', {method:'POST'})).json();
+  if (res.ok) {
+    dot.className = 'conn-dot ok';
+    text.textContent = 'מחובר · מצב: ' + (res.state || 'authorized');
+  } else {
+    dot.className = 'conn-dot err';
+    text.textContent = 'שגיאה: ' + (res.error || 'לא ידוע');
+  }
+}
+
+async function checkGmailStatus() {
+  const res = await (await fetch('/api/gmail/status')).json();
+  const dot  = document.getElementById('gmail-dot');
+  const text = document.getElementById('gmail-status-text');
+  const btnConnect    = document.getElementById('btn-gmail-connect');
+  const btnDisconnect = document.getElementById('btn-gmail-disconnect');
+  if (res.connected) {
+    dot.className = 'conn-dot ok';
+    text.textContent = 'מחובר';
+    btnConnect.style.display    = 'none';
+    btnDisconnect.style.display = '';
+  } else {
+    dot.className = 'conn-dot err';
+    text.textContent = 'לא מחובר';
+    btnConnect.style.display    = '';
+    btnDisconnect.style.display = 'none';
+  }
+}
+
+async function connectGmail() {
+  const res = await (await fetch('/api/gmail/auth-url')).json();
+  if (res.error) { alert('שגיאה: ' + res.error); return; }
+  const w = window.open(res.url, '_blank', 'width=500,height=600');
+  // poll for completion
+  const poll = setInterval(async () => {
+    const s = await (await fetch('/api/gmail/status')).json();
+    if (s.connected) { clearInterval(poll); checkGmailStatus(); }
+  }, 2000);
+}
+
+async function disconnectGmail() {
+  if (!confirm('לנתק את Gmail?')) return;
+  await fetch('/api/gmail/disconnect', {method:'POST'});
+  checkGmailStatus();
+}
+
+// ── utils ────────────────────────────────────────────────────────────────────
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtTime(iso) {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleString('he-IL'); } catch { return iso; }
+}
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 22px;border-radius:24px;z-index:999;font-size:.9rem';
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2800);
+}
+
+// ── init ──────────────────────────────────────────────────────────────────────
+loadRules();
+</script>
+</body>
+</html>
