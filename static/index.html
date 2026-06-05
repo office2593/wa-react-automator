@@ -312,11 +312,10 @@
         <button class="btn btn-ghost" onclick="refreshContacts()" id="btn-refresh-contacts">🔄 רענן</button>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
-        <label style="margin:0;white-space:nowrap;color:var(--muted);font-size:.85rem">רענון אוטומטי כל</label>
+        <label style="margin:0;white-space:nowrap;color:var(--muted);font-size:.85rem">רענון אוטומטי בשרת כל</label>
         <input id="contacts-interval" type="number" min="1" max="1440" style="width:80px;text-align:center"
-          oninput="saveContactsInterval()" />
+          onchange="saveContactsInterval()" />
         <span style="color:var(--muted);font-size:.85rem">דקות</span>
-        <span id="contacts-next-refresh" style="color:var(--purple);font-size:.8rem;font-weight:600"></span>
       </div>
 
       <div class="field">
@@ -640,9 +639,8 @@ async function loadSettings() {
   document.getElementById('green-token').value    = cfg.green_api_token   || '';
   checkGmailStatus();
   loadContactsStatus();
-  const savedMins = parseInt(localStorage.getItem('contactsIntervalMins')) || 60;
-  document.getElementById('contacts-interval').value = savedMins;
-  startContactsAutoRefresh(savedMins);
+  const intervalRes = await (await fetch('/api/contacts/interval')).json();
+  document.getElementById('contacts-interval').value = intervalRes.mins || 60;
 }
 
 async function saveGreenConfig() {
@@ -653,38 +651,14 @@ async function saveGreenConfig() {
   showToast('הגדרות GREEN API נשמרו ✓');
 }
 
-let _contactsIntervalTimer = null;
-let _countdownTimer = null;
-let _nextRefreshTime = null;
-
-function saveContactsInterval() {
+async function saveContactsInterval() {
   const mins = parseInt(document.getElementById('contacts-interval').value) || 60;
-  localStorage.setItem('contactsIntervalMins', mins);
-  startContactsAutoRefresh(mins);
-}
-
-function startContactsAutoRefresh(mins) {
-  if (_contactsIntervalTimer) clearInterval(_contactsIntervalTimer);
-  if (_countdownTimer) clearInterval(_countdownTimer);
-  if (!mins || mins < 1) {
-    document.getElementById('contacts-next-refresh').textContent = '';
-    return;
-  }
-  _nextRefreshTime = Date.now() + mins * 60 * 1000;
-  _contactsIntervalTimer = setInterval(() => {
-    refreshContacts();
-    _nextRefreshTime = Date.now() + mins * 60 * 1000;
-  }, mins * 60 * 1000);
-  // countdown
-  _countdownTimer = setInterval(() => {
-    const remaining = Math.max(0, _nextRefreshTime - Date.now());
-    const h = Math.floor(remaining / 3600000);
-    const m = Math.floor((remaining % 3600000) / 60000);
-    const s = Math.floor((remaining % 60000) / 1000);
-    const pad = n => String(n).padStart(2, '0');
-    document.getElementById('contacts-next-refresh').textContent =
-      `⏱️ ${h > 0 ? pad(h) + ':' : ''}${pad(m)}:${pad(s)}`;
-  }, 1000);
+  await fetch('/api/contacts/interval', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mins})
+  });
+  showToast('תדירות הרענון עודכנה — כל ' + mins + ' דקות ✓');
 }
 
 async function loadContactsStatus() {
