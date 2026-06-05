@@ -205,13 +205,80 @@ def get_gmail_service():
     return build("gmail", "v1", credentials=creds)
 
 
-def send_gmail(to: str, subject: str, body: str, sender_name: str = ""):
+LOGO_URL = "https://i.imgur.com/placeholder.png"  # replaced below
+
+EMAIL_TEMPLATE = """<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body {{ margin:0; padding:0; background:#f4f4f7; font-family: 'Segoe UI', Arial, sans-serif; direction:rtl; }}
+  .wrapper {{ max-width:600px; margin:32px auto; background:#fff; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.10); }}
+  .header {{ background: linear-gradient(135deg, #7B2D8B 0%, #4a0a6b 50%, #1a0030 100%); padding:32px 24px; text-align:center; }}
+  .header img {{ max-width:160px; height:auto; }}
+  .divider {{ height:4px; background: linear-gradient(90deg, #7B2D8B, #c084d8, #7B2D8B); }}
+  .body {{ padding:32px 28px; }}
+  .label {{ font-size:11px; font-weight:700; color:#7B2D8B; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }}
+  .value {{ font-size:15px; color:#1a1a2e; margin-bottom:20px; padding:10px 14px; background:#f8f4fc; border-right:3px solid #7B2D8B; border-radius:0 8px 8px 0; }}
+  .message-box {{ background: linear-gradient(135deg, #f8f4fc, #f0e8f8); border-radius:12px; padding:20px; margin-top:8px; font-size:15px; color:#2d2d2d; line-height:1.7; white-space:pre-wrap; }}
+  .footer {{ background:#1a0030; color:#c084d8; text-align:center; padding:16px; font-size:12px; }}
+  .emoji-badge {{ display:inline-block; font-size:28px; background:#f8f4fc; border-radius:50%; width:52px; height:52px; line-height:52px; text-align:center; margin-bottom:8px; box-shadow:0 2px 8px rgba(123,45,139,0.2); }}
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="header">
+    <img src="{logo_url}" alt="אורן דולב - רואה חשבון" />
+  </div>
+  <div class="divider"></div>
+  <div class="body">
+    <div style="text-align:center; margin-bottom:24px;">
+      <div class="emoji-badge">{emoji}</div>
+      <h2 style="margin:8px 0 0; color:#1a0030; font-size:20px;">{subject}</h2>
+    </div>
+    <div class="label">מאת</div>
+    <div class="value">{sender_name}</div>
+    <div class="label">תאריך ושעה</div>
+    <div class="value">{timestamp}</div>
+    <div class="label">הודעה מקורית</div>
+    <div class="message-box">{message}</div>
+  </div>
+  <div class="footer">אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp</div>
+</div>
+</body>
+</html>"""
+
+
+def build_email_html(emoji: str, subject: str, sender_name: str, timestamp: str, message: str, logo_url: str) -> str:
+    """Build HTML email body. In the future, AI can enhance subject/message here."""
+    ts_formatted = timestamp.replace("T", " ")[:19]
+    return EMAIL_TEMPLATE.format(
+        logo_url=logo_url,
+        emoji=emoji,
+        subject=subject,
+        sender_name=sender_name or "לא ידוע",
+        timestamp=ts_formatted,
+        message=message or "(אין הודעה מקורית)",
+    )
+
+
+def send_gmail(to: str, subject: str, body: str, sender_name: str = "",
+               emoji: str = "", timestamp: str = "", message: str = "", logo_url: str = ""):
     service = get_gmail_service()
     msg = MIMEMultipart("alternative")
     msg["To"]      = to
     msg["Subject"] = subject
-    msg["From"]    = sender_name or "me"
-    msg.attach(MIMEText(body, "html" if "<" in body else "plain", "utf-8"))
+    msg["From"]    = "me"
+
+    # plain text fallback
+    plain = f"{subject}\nמאת: {sender_name}\nתאריך: {timestamp}\n\n{message}"
+    msg.attach(MIMEText(plain, "plain", "utf-8"))
+
+    # HTML version
+    html_body = build_email_html(emoji, subject, sender_name, timestamp, message, logo_url)
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
@@ -262,8 +329,9 @@ def webhook():
         )
     log.info("Reaction emoji detected: %r", reaction)
     msg_data   = body.get("messageData", {})
-    sender     = body.get("senderData", {}).get("sender", "")
-    chat_id    = body.get("senderData", {}).get("chatId", "")
+    sender      = payload.get("senderData", {}).get("sender", "") or body.get("senderData", {}).get("sender", "")
+    sender_name = payload.get("senderData", {}).get("senderName", "") or body.get("senderData", {}).get("senderName", "")
+    chat_id     = payload.get("senderData", {}).get("chatId", "") or body.get("senderData", {}).get("chatId", "")
     orig_text  = (
         msg_data.get("extendedTextMessageData", {}).get("text", "")
         or msg_data.get("textMessageData", {}).get("textMessage", "")
@@ -273,7 +341,11 @@ def webhook():
     timestamp  = datetime.utcnow().isoformat()
 
     rules = load_rules()
+    log.info("Rules loaded: %d rules. Looking for emoji: %r", len(rules), reaction)
+    for r in rules:
+        log.info("Rule emoji: %r active: %s match: %s", r.get("emoji"), r.get("active"), r.get("emoji") == reaction)
     matched = [r for r in rules if r.get("emoji") == reaction and r.get("active", True)]
+    log.info("Matched rules: %d", len(matched))
 
     if not matched:
         append_log({
@@ -296,11 +368,17 @@ def webhook():
             .replace("{{message}}", orig_text)
             .replace("{{time}}", timestamp)
         )
+        cfg = load_config()
+        logo_url = cfg.get("logo_url", "https://i.imgur.com/8Q7nZ9L.png")
         try:
-            send_gmail(to_email, subject, body_txt)
+            send_gmail(
+                to=to_email, subject=subject, body=body_txt,
+                sender_name=sender_name, emoji=reaction,
+                timestamp=timestamp, message=orig_text, logo_url=logo_url
+            )
             append_log({
                 "time": timestamp, "emoji": reaction, "sender": sender,
-                "chat": chat_id, "original_text": orig_text,
+                "sender_name": sender_name, "chat": chat_id, "original_text": orig_text,
                 "rule_name": rule.get("name", ""), "email_to": to_email, "status": "sent"
             })
             log.info("Email sent to %s for reaction %s", to_email, reaction)
