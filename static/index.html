@@ -492,12 +492,21 @@ function closeModal() {
 }
 
 async function saveRule() {
+  const emoji   = document.getElementById('rule-emoji').value.trim();
+  const subject = document.getElementById('rule-subject').value.trim();
+  const bodyTxt = document.getElementById('rule-body').value;
+  const sender  = '{{sender}}';
+  const time    = '{{time}}';
+  const htmlTemplate = buildEmailHtml(emoji, subject, sender, time, bodyTxt.replace(/\n/g,'<br>'))
+    .replace(LOGO_URL, '{{logo_url}}');
+
   const rule = {
-    name:          document.getElementById('rule-name').value.trim(),
-    emoji:         document.getElementById('rule-emoji').value.trim(),
-    email_to:      document.getElementById('rule-email-to').value.trim(),
-    email_subject: document.getElementById('rule-subject').value.trim(),
-    email_body:    document.getElementById('rule-body').value,
+    name:                document.getElementById('rule-name').value.trim(),
+    emoji:               emoji,
+    email_to:            document.getElementById('rule-email-to').value.trim(),
+    email_subject:       subject,
+    email_body:          bodyTxt,
+    email_html_template: htmlTemplate,
   };
   if (!rule.emoji || !rule.email_to) { showToast('אמוג\'י וכתובת מייל הם שדות חובה', true); return; }
   if (editingId) {
