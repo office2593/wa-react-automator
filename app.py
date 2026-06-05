@@ -372,6 +372,9 @@ def fetch_and_save_contacts() -> dict:
             name = c.get("name") or c.get("pushname") or ""
             if chat_id and name:
                 contacts[chat_id] = name
+            # log first 3 contacts to see field structure
+        if contacts_list:
+            log.info("Sample contact fields: %s", json.dumps(contacts_list[0])[:200])
         db_set("contacts", contacts)
         db_set("contacts_updated", datetime.utcnow().isoformat())
         log.info("Contacts synced: %d contacts", len(contacts))
