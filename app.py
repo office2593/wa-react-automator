@@ -384,8 +384,8 @@ def fetch_and_save_contacts() -> dict:
         return {}
 
 
-def get_last_message(chat_id: str) -> str:
-    """Fetch the last non-reaction message from chat history."""
+def get_message_from_history(chat_id: str, stanza_id: str = "") -> str:
+    """Fetch message from chat history. If stanza_id given, look for that message; else return last."""
     if not chat_id:
         return ""
     try:
@@ -393,27 +393,38 @@ def get_last_message(chat_id: str) -> str:
         if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
             return ""
         url = green_api_url(cfg, "getChatHistory")
-        r = http_requests.post(url, json={"chatId": chat_id, "count": 20}, timeout=10)
+        r = http_requests.post(url, json={"chatId": chat_id, "count": 50}, timeout=10)
+        log.info("getChatHistory status=%s body=%s", r.status_code, r.text[:200])
         messages = r.json()
         if not isinstance(messages, list):
             return ""
-        # find last message that is NOT a reaction
-        for msg in reversed(messages):
-            md = msg.get("messageData", {})
-            type_msg = md.get("typeMessage", "")
-            if type_msg == "reactionMessage":
-                continue
-            text = (
+
+        def extract_text(md):
+            return (
                 md.get("textMessageData", {}).get("textMessage", "")
                 or md.get("extendedTextMessageData", {}).get("text", "")
                 or md.get("imageMessageData", {}).get("caption", "")
                 or md.get("documentMessageData", {}).get("caption", "")
+                or ""
             )
+
+        # find by stanzaId if provided
+        if stanza_id:
+            for msg in messages:
+                if msg.get("idMessage") == stanza_id:
+                    return extract_text(msg.get("messageData", {}))
+
+        # fallback: last non-reaction message
+        for msg in reversed(messages):
+            md = msg.get("messageData", {})
+            if md.get("typeMessage") == "reactionMessage":
+                continue
+            text = extract_text(md)
             if text:
                 return text
         return ""
     except Exception as e:
-        log.warning("Could not fetch last message: %s", e)
+        log.warning("Could not fetch message from history: %s", e)
         return ""
 
 
@@ -502,8 +513,9 @@ def webhook():
     )
     log.info("orig_text from webhook: %r", orig_text[:100] if orig_text else "")
     if not orig_text and chat_id:
-        orig_text = get_last_message(chat_id)
-        log.info("Fetched last message fallback: %r", orig_text[:100] if orig_text else "")
+        stanza_id = quoted.get("stanzaId", "")
+        orig_text = get_message_from_history(chat_id, stanza_id)
+        log.info("Fetched from history (stanzaId=%r): %r", stanza_id, orig_text[:100] if orig_text else "")
     timestamp  = datetime.utcnow().isoformat()
 
     rules = load_rules()
