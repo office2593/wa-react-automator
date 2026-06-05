@@ -399,31 +399,36 @@ def get_message_from_history(chat_id: str, stanza_id: str = "") -> str:
         if not isinstance(messages, list):
             return ""
 
-        def extract_text(md):
+        def extract_text(m):
+            # getChatHistory puts fields at top level OR inside messageData
+            md = m.get("messageData", m)  # fallback to message itself
             return (
-                md.get("textMessageData", {}).get("textMessage", "")
-                or md.get("extendedTextMessageData", {}).get("text", "")
-                or md.get("imageMessageData", {}).get("caption", "")
-                or md.get("documentMessageData", {}).get("caption", "")
+                m.get("textMessage", "")
+                or (m.get("extendedTextMessageData") or {}).get("text", "")
+                or (m.get("textMessageData") or {}).get("textMessage", "")
+                or (md.get("extendedTextMessageData") or {}).get("text", "")
+                or (md.get("textMessageData") or {}).get("textMessage", "")
+                or m.get("caption", "")
                 or ""
             )
 
-        # find by stanzaId if provided (try multiple ID fields)
+        def get_type(m):
+            return m.get("typeMessage", "") or m.get("messageData", {}).get("typeMessage", "")
+
+        # find by stanzaId if provided
         if stanza_id:
             for msg in messages:
                 if (msg.get("idMessage") == stanza_id or
-                    msg.get("stanzaId") == stanza_id or
-                    msg.get("messageData", {}).get("stanzaId") == stanza_id):
-                    text = extract_text(msg.get("messageData", {}))
+                    msg.get("stanzaId") == stanza_id):
+                    text = extract_text(msg)
                     if text:
                         return text
 
         # fallback: last non-reaction message
         for msg in reversed(messages):
-            md = msg.get("messageData", {})
-            if md.get("typeMessage") == "reactionMessage":
+            if get_type(msg) == "reactionMessage":
                 continue
-            text = extract_text(md)
+            text = extract_text(msg)
             if text:
                 return text
         return ""
