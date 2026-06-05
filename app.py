@@ -31,6 +31,17 @@ log = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
+
+# write credentials from env vars if provided (Railway deployment)
+_client_secrets_env = os.environ.get("GOOGLE_CLIENT_SECRETS")
+if _client_secrets_env:
+    (DATA_DIR / "client_secrets.json").write_text(_client_secrets_env, encoding="utf-8")
+
+_gmail_token_env = os.environ.get("GMAIL_TOKEN")
+if _gmail_token_env:
+    token_path = DATA_DIR / "gmail_token.json"
+    if not token_path.exists():
+        token_path.write_text(_gmail_token_env, encoding="utf-8")
 RULES_FILE  = DATA_DIR / "rules.json"
 LOG_FILE    = DATA_DIR / "log.json"
 CONFIG_FILE = DATA_DIR / "config.json"
@@ -257,7 +268,12 @@ def save_config():
     return jsonify({"ok": True})
 
 
-REDIRECT_URI = "http://localhost:5000/api/gmail/callback"
+_railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+REDIRECT_URI = (
+    f"https://{_railway_domain}/api/gmail/callback"
+    if _railway_domain
+    else "http://localhost:5000/api/gmail/callback"
+)
 
 # store flow state between auth-url and callback
 _oauth_flow: dict = {}
