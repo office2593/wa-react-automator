@@ -205,62 +205,126 @@ def get_gmail_service():
     return build("gmail", "v1", credentials=creds)
 
 
-LOGO_URL = "https://i.imgur.com/placeholder.png"  # replaced below
+def build_email_html(emoji: str, subject: str, sender_name: str, timestamp: str, message: str, logo_url: str) -> str:
+    """Build Outlook-compatible HTML email. In the future, AI can enhance subject/message here."""
+    ts_formatted = timestamp.replace("T", " ")[:19]
+    sn   = sender_name or "לא ידוע"
+    msg  = (message or "(אין הודעה מקורית)").replace("\n", "<br>")
 
-EMAIL_TEMPLATE = """<!DOCTYPE html>
-<html dir="rtl" lang="he">
+    return f"""<!DOCTYPE html>
+<html dir="rtl" lang="he" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--[if mso]>
+<noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<![endif]-->
 <style>
-  body {{ margin:0; padding:0; background:#f4f4f7; font-family: 'Segoe UI', Arial, sans-serif; direction:rtl; }}
-  .wrapper {{ max-width:600px; margin:32px auto; background:#fff; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.10); }}
-  .header {{ background: linear-gradient(135deg, #7B2D8B 0%, #4a0a6b 50%, #1a0030 100%); padding:32px 24px; text-align:center; }}
-  .header img {{ max-width:160px; height:auto; }}
-  .divider {{ height:4px; background: linear-gradient(90deg, #7B2D8B, #c084d8, #7B2D8B); }}
-  .body {{ padding:32px 28px; }}
-  .label {{ font-size:11px; font-weight:700; color:#7B2D8B; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }}
-  .value {{ font-size:15px; color:#1a1a2e; margin-bottom:20px; padding:10px 14px; background:#f8f4fc; border-right:3px solid #7B2D8B; border-radius:0 8px 8px 0; }}
-  .message-box {{ background: linear-gradient(135deg, #f8f4fc, #f0e8f8); border-radius:12px; padding:20px; margin-top:8px; font-size:15px; color:#2d2d2d; line-height:1.7; white-space:pre-wrap; }}
-  .footer {{ background:#1a0030; color:#c084d8; text-align:center; padding:16px; font-size:12px; }}
-  .emoji-badge {{ display:inline-block; font-size:28px; background:#f8f4fc; border-radius:50%; width:52px; height:52px; line-height:52px; text-align:center; margin-bottom:8px; box-shadow:0 2px 8px rgba(123,45,139,0.2); }}
+  body,table,td{{margin:0;padding:0;font-family:Arial,sans-serif;direction:rtl}}
+  img{{border:0;display:block}}
 </style>
 </head>
-<body>
-<div class="wrapper">
-  <div class="header">
-    <img src="{logo_url}" alt="אורן דולב - רואה חשבון" />
-  </div>
-  <div class="divider"></div>
-  <div class="body">
-    <div style="text-align:center; margin-bottom:24px;">
-      <div class="emoji-badge">{emoji}</div>
-      <h2 style="margin:8px 0 0; color:#1a0030; font-size:20px;">{subject}</h2>
-    </div>
-    <div class="label">מאת</div>
-    <div class="value">{sender_name}</div>
-    <div class="label">תאריך ושעה</div>
-    <div class="value">{timestamp}</div>
-    <div class="label">הודעה מקורית</div>
-    <div class="message-box">{message}</div>
-  </div>
-  <div class="footer">אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp</div>
-</div>
+<body style="background:#f4f0f8;margin:0;padding:20px 0">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f0f8">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border:1px solid #e0d0f0">
+
+  <!-- HEADER -->
+  <tr>
+    <td align="center" bgcolor="#4a0a6b" style="background:#4a0a6b;padding:28px 24px">
+      <!--[if mso]>
+      <table><tr><td style="background:#4a0a6b">
+      <![endif]-->
+      <img src="{logo_url}" width="140" alt="אורן דולב" style="display:block;margin:0 auto;max-width:140px;height:auto" />
+      <!--[if mso]></td></tr></table><![endif]-->
+    </td>
+  </tr>
+
+  <!-- ACCENT BAR -->
+  <tr>
+    <td height="5" bgcolor="#7B2D8B" style="background:#7B2D8B;font-size:0;line-height:0">&nbsp;</td>
+  </tr>
+
+  <!-- EMOJI + TITLE -->
+  <tr>
+    <td align="center" style="padding:28px 24px 12px;background:#ffffff">
+      <table cellpadding="0" cellspacing="0" border="0" align="center">
+        <tr>
+          <td align="center" bgcolor="#f8f4fc" width="60" height="60"
+              style="background:#f8f4fc;border:2px solid #c084d8;border-radius:30px;font-size:30px;text-align:center;line-height:60px;padding:0 8px">
+            {emoji}
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding-top:12px;font-size:20px;font-weight:bold;color:#1a0030;font-family:Arial,sans-serif">
+            {subject}
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- BODY -->
+  <tr>
+    <td style="padding:8px 32px 24px;background:#ffffff">
+
+      <!-- מאת -->
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:16px">
+        <tr>
+          <td style="font-size:11px;font-weight:bold;color:#7B2D8B;text-transform:uppercase;letter-spacing:1px;padding-bottom:5px;font-family:Arial,sans-serif">
+            מאת
+          </td>
+        </tr>
+        <tr>
+          <td bgcolor="#f8f4fc" style="background:#f8f4fc;border-right:4px solid #7B2D8B;padding:10px 14px;font-size:15px;color:#1a1a2e;font-family:Arial,sans-serif">
+            {sn}
+          </td>
+        </tr>
+      </table>
+
+      <!-- תאריך -->
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:16px">
+        <tr>
+          <td style="font-size:11px;font-weight:bold;color:#7B2D8B;text-transform:uppercase;letter-spacing:1px;padding-bottom:5px;font-family:Arial,sans-serif">
+            תאריך ושעה
+          </td>
+        </tr>
+        <tr>
+          <td bgcolor="#f8f4fc" style="background:#f8f4fc;border-right:4px solid #7B2D8B;padding:10px 14px;font-size:15px;color:#1a1a2e;font-family:Arial,sans-serif">
+            {ts_formatted}
+          </td>
+        </tr>
+      </table>
+
+      <!-- הודעה -->
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="font-size:11px;font-weight:bold;color:#7B2D8B;text-transform:uppercase;letter-spacing:1px;padding-bottom:5px;font-family:Arial,sans-serif">
+            הודעה מקורית
+          </td>
+        </tr>
+        <tr>
+          <td bgcolor="#f0e8f8" style="background:#f0e8f8;padding:16px;font-size:15px;color:#2d2d2d;line-height:1.7;font-family:Arial,sans-serif">
+            {msg}
+          </td>
+        </tr>
+      </table>
+
+    </td>
+  </tr>
+
+  <!-- FOOTER -->
+  <tr>
+    <td align="center" bgcolor="#1a0030" style="background:#1a0030;padding:16px;font-size:12px;color:#c084d8;font-family:Arial,sans-serif">
+      אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
 </body>
 </html>"""
-
-
-def build_email_html(emoji: str, subject: str, sender_name: str, timestamp: str, message: str, logo_url: str) -> str:
-    """Build HTML email body. In the future, AI can enhance subject/message here."""
-    ts_formatted = timestamp.replace("T", " ")[:19]
-    return EMAIL_TEMPLATE.format(
-        logo_url=logo_url,
-        emoji=emoji,
-        subject=subject,
-        sender_name=sender_name or "לא ידוע",
-        timestamp=ts_formatted,
-        message=message or "(אין הודעה מקורית)",
-    )
 
 
 def send_gmail(to: str, subject: str, body: str, sender_name: str = "",
@@ -358,18 +422,20 @@ def webhook():
     errors = []
     for rule in matched:
         to_email = rule.get("email_to", "")
-        subject  = rule.get("email_subject", f"WhatsApp reaction {reaction}")
-        template = rule.get("email_body", "")
-        body_txt = (
-            template
-            .replace("{{emoji}}", reaction)
-            .replace("{{sender}}", sender)
-            .replace("{{chat}}", chat_id)
-            .replace("{{message}}", orig_text)
-            .replace("{{time}}", timestamp)
-        )
-        cfg = load_config()
-        logo_url = cfg.get("logo_url", "https://i.imgur.com/8Q7nZ9L.png")
+        raw_subject = rule.get("email_subject", "{{sender}} — משימה חדשה")
+        subject = raw_subject.replace("{{sender}}", sender_name or sender)
+
+        def fill(t):
+            return (t or "").replace("{{emoji}}", reaction).replace("{{sender}}", sender_name or sender).replace("{{chat}}", chat_id).replace("{{message}}", orig_text).replace("{{time}}", timestamp)
+
+        # use pre-built HTML template from rule if available, else build from body
+        railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+        logo_url = f"https://{railway_domain}/logo.png" if railway_domain else "/logo.png"
+        html_template = rule.get("email_html_template", "")
+        if html_template:
+            body_txt = fill(html_template).replace("{{logo_url}}", logo_url)
+        else:
+            body_txt = fill(rule.get("email_body", ""))
         try:
             send_gmail(
                 to=to_email, subject=subject, body=body_txt,
