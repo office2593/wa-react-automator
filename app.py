@@ -1,10 +1,10 @@
 """
 WhatsApp Reaction → Gmail Automator
 Flask backend: receives GREEN API webhooks, applies rules, sends Gmail.
+Data stored in PostgreSQL (Railway) or local JSON files (development).
 """
 import json
 import os
-import smtplib
 import base64
 import logging
 from datetime import datetime
@@ -13,17 +13,25 @@ from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 
 from flask import Flask, request, jsonify, send_from_directory
-import requests
+import requests as http_requests
 
 # ── Google OAuth ──────────────────────────────────────────────────────────────
 try:
     from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow, Flow
+    from google_auth_oauthlib.flow import Flow
     from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
     GOOGLE_LIBS = True
 except ImportError:
     GOOGLE_LIBS = False
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+try:
+    import psycopg2
+    import psycopg2.extras
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
 
 app = Flask(__name__, static_folder="static")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -37,17 +45,76 @@ _client_secrets_env = os.environ.get("GOOGLE_CLIENT_SECRETS")
 if _client_secrets_env:
     (DATA_DIR / "client_secrets.json").write_text(_client_secrets_env, encoding="utf-8")
 
-_gmail_token_env = os.environ.get("GMAIL_TOKEN")
-if _gmail_token_env:
-    token_path = DATA_DIR / "gmail_token.json"
-    if not token_path.exists():
-        token_path.write_text(_gmail_token_env, encoding="utf-8")
 RULES_FILE  = DATA_DIR / "rules.json"
 LOG_FILE    = DATA_DIR / "log.json"
 CONFIG_FILE = DATA_DIR / "config.json"
 TOKEN_FILE  = DATA_DIR / "gmail_token.json"
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+
+# ── database helpers ──────────────────────────────────────────────────────────
+
+def get_db():
+    return psycopg2.connect(DATABASE_URL)
+
+
+def init_db():
+    if not DATABASE_URL or not POSTGRES_AVAILABLE:
+        return
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS kv_store (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        log.error("DB init error: %s", e)
+
+
+def db_get(key, default):
+    if not DATABASE_URL or not POSTGRES_AVAILABLE:
+        return default
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM kv_store WHERE key = %s", (key,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return json.loads(row[0]) if row else default
+    except Exception as e:
+        log.error("DB get error: %s", e)
+        return default
+
+
+def db_set(key, value):
+    if not DATABASE_URL or not POSTGRES_AVAILABLE:
+        return
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO kv_store (key, value) VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        """, (key, json.dumps(value, ensure_ascii=False)))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        log.error("DB set error: %s", e)
+
+
+# initialize DB on startup
+init_db()
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -65,21 +132,59 @@ def save_json(path, data):
 
 
 def load_rules():
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        return db_get("rules", [])
     return load_json(RULES_FILE, [])
 
 
+def save_rules(data):
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("rules", data)
+    else:
+        save_json(RULES_FILE, data)
+
+
 def load_config():
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        return db_get("config", {})
     return load_json(CONFIG_FILE, {})
 
 
+def save_config_data(data):
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("config", data)
+    else:
+        save_json(CONFIG_FILE, data)
+
+
 def load_log():
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        return db_get("log", [])
     return load_json(LOG_FILE, [])
 
 
 def append_log(entry: dict):
     entries = load_log()
     entries.insert(0, entry)
-    save_json(LOG_FILE, entries[:200])  # keep last 200
+    entries = entries[:200]
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("log", entries)
+    else:
+        save_json(LOG_FILE, entries)
+
+
+def load_gmail_token():
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        token = db_get("gmail_token", None)
+        if token:
+            save_json(TOKEN_FILE, token)
+    return TOKEN_FILE
+
+
+def save_gmail_token(token_dict):
+    save_json(TOKEN_FILE, token_dict)
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("gmail_token", token_dict)
 
 
 # ── Gmail send ────────────────────────────────────────────────────────────────
@@ -87,13 +192,14 @@ def append_log(entry: dict):
 def get_gmail_service():
     if not GOOGLE_LIBS:
         raise RuntimeError("google-auth libraries not installed")
+    load_gmail_token()
     creds = None
     if TOKEN_FILE.exists():
         creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            save_json(TOKEN_FILE, json.loads(creds.to_json()))
+            save_gmail_token(json.loads(creds.to_json()))
         else:
             raise RuntimeError("Gmail not authorized — please connect via the dashboard")
     return build("gmail", "v1", credentials=creds)
@@ -136,7 +242,6 @@ def webhook():
     msg_data   = body.get("messageData", {})
     sender     = body.get("senderData", {}).get("sender", "")
     chat_id    = body.get("senderData", {}).get("chatId", "")
-    # original message text (if available)
     orig_text  = (
         msg_data.get("extendedTextMessageData", {}).get("text", "")
         or msg_data.get("textMessageData", {}).get("textMessage", "")
@@ -150,23 +255,17 @@ def webhook():
 
     if not matched:
         append_log({
-            "time": timestamp,
-            "emoji": reaction,
-            "sender": sender,
-            "chat": chat_id,
-            "original_text": orig_text,
-            "status": "no_rule",
-            "message": "No matching rule"
+            "time": timestamp, "emoji": reaction, "sender": sender,
+            "chat": chat_id, "original_text": orig_text,
+            "status": "no_rule", "message": "No matching rule"
         })
         return jsonify({"ok": True}), 200
 
-    config = load_config()
     errors = []
     for rule in matched:
         to_email = rule.get("email_to", "")
         subject  = rule.get("email_subject", f"WhatsApp reaction {reaction}")
         template = rule.get("email_body", "")
-        # replace placeholders
         body_txt = (
             template
             .replace("{{emoji}}", reaction)
@@ -178,28 +277,18 @@ def webhook():
         try:
             send_gmail(to_email, subject, body_txt)
             append_log({
-                "time": timestamp,
-                "emoji": reaction,
-                "sender": sender,
-                "chat": chat_id,
-                "original_text": orig_text,
-                "rule_name": rule.get("name", ""),
-                "email_to": to_email,
-                "status": "sent"
+                "time": timestamp, "emoji": reaction, "sender": sender,
+                "chat": chat_id, "original_text": orig_text,
+                "rule_name": rule.get("name", ""), "email_to": to_email, "status": "sent"
             })
             log.info("Email sent to %s for reaction %s", to_email, reaction)
         except Exception as e:
             errors.append(str(e))
             append_log({
-                "time": timestamp,
-                "emoji": reaction,
-                "sender": sender,
-                "chat": chat_id,
-                "original_text": orig_text,
-                "rule_name": rule.get("name", ""),
-                "email_to": to_email,
-                "status": "error",
-                "message": str(e)
+                "time": timestamp, "emoji": reaction, "sender": sender,
+                "chat": chat_id, "original_text": orig_text,
+                "rule_name": rule.get("name", ""), "email_to": to_email,
+                "status": "error", "message": str(e)
             })
             log.error("Failed to send email: %s", e)
 
@@ -220,7 +309,7 @@ def create_rule():
     rule.setdefault("active", True)
     rules = load_rules()
     rules.append(rule)
-    save_json(RULES_FILE, rules)
+    save_rules(rules)
     return jsonify(rule), 201
 
 
@@ -230,7 +319,7 @@ def update_rule(rid):
     for i, r in enumerate(rules):
         if r["id"] == rid:
             rules[i] = {**r, **request.get_json(), "id": rid}
-            save_json(RULES_FILE, rules)
+            save_rules(rules)
             return jsonify(rules[i])
     return jsonify({"error": "not found"}), 404
 
@@ -238,7 +327,7 @@ def update_rule(rid):
 @app.route("/api/rules/<rid>", methods=["DELETE"])
 def delete_rule(rid):
     rules = [r for r in load_rules() if r["id"] != rid]
-    save_json(RULES_FILE, rules)
+    save_rules(rules)
     return jsonify({"ok": True})
 
 
@@ -250,7 +339,6 @@ def get_log():
 @app.route("/api/config", methods=["GET"])
 def get_config():
     cfg = load_config()
-    # mask token
     if cfg.get("green_api_token"):
         cfg["green_api_token"] = cfg["green_api_token"][:6] + "***"
     return jsonify(cfg)
@@ -260,11 +348,10 @@ def get_config():
 def save_config():
     data = request.get_json()
     cfg = load_config()
-    # preserve real token if masked value sent back
     if data.get("green_api_token", "").endswith("***"):
         data["green_api_token"] = cfg.get("green_api_token", "")
     cfg.update(data)
-    save_json(CONFIG_FILE, cfg)
+    save_config_data(cfg)
     return jsonify({"ok": True})
 
 
@@ -275,7 +362,6 @@ REDIRECT_URI = (
     else "http://localhost:5000/api/gmail/callback"
 )
 
-# store flow state between auth-url and callback
 _oauth_flow: dict = {}
 
 
@@ -286,7 +372,6 @@ def gmail_auth_url():
     client_secrets = DATA_DIR / "client_secrets.json"
     if not client_secrets.exists():
         return jsonify({"error": "client_secrets.json not found in data/"}), 400
-    import os
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
     flow = Flow.from_client_secrets_file(
         str(client_secrets), SCOPES,
@@ -301,14 +386,13 @@ def gmail_auth_url():
 def gmail_callback():
     if not GOOGLE_LIBS:
         return "google-auth not installed", 500
-    import os
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
     flow = _oauth_flow.get("flow")
     if not flow:
         return "Session expired, please try again.", 400
     flow.fetch_token(authorization_response=request.url)
     creds = flow.credentials
-    save_json(TOKEN_FILE, json.loads(creds.to_json()))
+    save_gmail_token(json.loads(creds.to_json()))
     _oauth_flow.clear()
     return """<html><body style="font-family:sans-serif;text-align:center;padding:60px">
     <h2>✅ Gmail connected!</h2><p>You can close this tab.</p></body></html>"""
@@ -316,12 +400,14 @@ def gmail_callback():
 
 @app.route("/api/gmail/status", methods=["GET"])
 def gmail_status():
+    load_gmail_token()
     if not TOKEN_FILE.exists():
         return jsonify({"connected": False})
     try:
         creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
         if creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            save_gmail_token(json.loads(creds.to_json()))
         return jsonify({"connected": creds.valid})
     except Exception:
         return jsonify({"connected": False})
@@ -331,6 +417,8 @@ def gmail_status():
 def gmail_disconnect():
     if TOKEN_FILE.exists():
         TOKEN_FILE.unlink()
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("gmail_token", None)
     return jsonify({"ok": True})
 
 
@@ -341,7 +429,7 @@ def green_test():
         return jsonify({"ok": False, "error": "GREEN API not configured"}), 400
     try:
         url = green_api_url(cfg, "getStateInstance")
-        r = requests.get(url, timeout=10)
+        r = http_requests.get(url, timeout=10)
         data = r.json()
         return jsonify({"ok": True, "state": data.get("stateInstance", "unknown")})
     except Exception as e:
