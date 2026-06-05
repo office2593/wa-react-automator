@@ -348,8 +348,15 @@
         </div>
         <div class="field">
           <label>אמוג'י שמפעיל את הכלל</label>
-          <div class="emoji-pick" id="emoji-pick"></div>
-          <input id="rule-emoji" placeholder="או הקלד אמוג'י ידנית" style="margin-top:10px" oninput="renderEmojiPicker(this.value);updatePreview()" />
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="rule-emoji" placeholder="לחץ על הכפתור או הקלד ידנית" style="flex:1" oninput="updatePreview()" />
+            <button type="button" class="btn btn-ghost" style="padding:9px 14px;font-size:1.3rem" onclick="document.getElementById('emoji-input-hack').click()" title="פתח מקלדת אמוג'י">😊</button>
+            <input id="emoji-input-hack" type="text" inputmode="none"
+              style="position:absolute;opacity:0;pointer-events:none;width:0;height:0"
+              onfocus="this.style.opacity='1';this.style.position='fixed';this.style.top='50%';this.style.left='50%';this.style.width='1px';this.style.height='1px'"
+              onblur="this.style.opacity='0';this.style.position='absolute';this.style.width='0';this.style.height='0';if(this.value){document.getElementById('rule-emoji').value=this.value;this.value='';updatePreview();}"
+            />
+          </div>
         </div>
         <div class="field">
           <label>שלח מייל אל</label>
@@ -357,12 +364,14 @@
         </div>
         <div class="field">
           <label>נושא המייל</label>
-          <input id="rule-subject" placeholder="לדוגמה: משימה חדשה ממשרד רואה החשבון" oninput="updatePreview()" />
-          <div class="var-chips" id="chips-subject"></div>
+          <div style="padding:10px 14px;background:#f8f4fc;border:1.5px solid var(--border);border-radius:10px;color:var(--purple-dark);font-size:.95rem;font-weight:600">
+            {{sender}} — משימה חדשה
+          </div>
+          <input type="hidden" id="rule-subject" value="{{sender}} — משימה חדשה" />
         </div>
         <div class="field">
           <label>גוף המייל</label>
-          <textarea id="rule-body" placeholder="תוכן ההודעה..." oninput="updatePreview()"></textarea>
+          <textarea id="rule-body" placeholder="תוכן ההודעה..." oninput="updatePreview()" style="min-height:180px"></textarea>
           <div class="var-chips" id="chips-body"></div>
         </div>
       </div>
@@ -395,6 +404,7 @@ const VARS = [
 
 let editingId = null;
 const LOGO_URL = '/logo.png';
+let rulesCache = {};
 
 // ── nav ──────────────────────────────────────────────────────────────────────
 function showPage(name, btn) {
@@ -415,6 +425,7 @@ async function loadRules() {
     el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>אין כללים עדיין. לחץ "+ כלל חדש" כדי להוסיף.</div>';
     return;
   }
+  rules.forEach(r => { rulesCache[r.id] = r; });
   el.innerHTML = rules.map(r => `
     <div class="rule-card">
       <div class="rule-emoji">${r.emoji || '❓'}</div>
@@ -426,7 +437,7 @@ async function loadRules() {
         ${r.active ? '● פעיל' : '○ כבוי'}
       </span>
       <div class="rule-actions">
-        <button class="btn btn-ghost" style="padding:7px 12px" onclick='openEditRule(${JSON.stringify(r).replace(/"/g,"&quot;")})'>✏️</button>
+        <button class="btn btn-ghost" style="padding:7px 12px" onclick="openEditRule(rulesCache['${r.id}'])">✏️</button>
         <button class="btn btn-danger" style="padding:7px 12px" onclick="deleteRule('${r.id}')">🗑️</button>
       </div>
     </div>`).join('');
@@ -440,7 +451,6 @@ function openNewRule() {
   document.getElementById('rule-email-to').value = '';
   document.getElementById('rule-subject').value = 'משימה חדשה ממשרד רואה החשבון';
   document.getElementById('rule-body').value = 'שלום,\n\nהתקבלה משימה חדשה:\n\nמאת: {{sender}}\nהודעה: {{message}}\nזמן: {{time}}';
-  renderEmojiPicker('');
   renderVarChips();
   updatePreview();
   document.getElementById('rule-modal').classList.add('open');
@@ -452,24 +462,10 @@ function openEditRule(r) {
   document.getElementById('rule-name').value = r.name || '';
   document.getElementById('rule-emoji').value = r.emoji || '';
   document.getElementById('rule-email-to').value = r.email_to || '';
-  document.getElementById('rule-subject').value = r.email_subject || '';
   document.getElementById('rule-body').value = r.email_body || '';
-  renderEmojiPicker(r.emoji || '');
   renderVarChips();
   updatePreview();
   document.getElementById('rule-modal').classList.add('open');
-}
-
-function renderEmojiPicker(selected) {
-  document.getElementById('emoji-pick').innerHTML = EMOJIS.map(e =>
-    `<button type="button" class="${e===selected?'selected':''}" onclick="pickEmoji('${e}')">${e}</button>`
-  ).join('');
-}
-
-function pickEmoji(e) {
-  document.getElementById('rule-emoji').value = e;
-  renderEmojiPicker(e);
-  updatePreview();
 }
 
 function renderVarChips() {
