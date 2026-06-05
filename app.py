@@ -356,24 +356,50 @@ def green_api_url(config, method):
     )
 
 
-def get_contact_name(chat_id: str) -> str:
-    """Get contact name from GREEN API by chatId."""
+def fetch_and_save_contacts() -> dict:
+    """Fetch all contacts from GREEN API and save to DB. Returns phone→name dict."""
     try:
         cfg = load_config()
         if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
-            return ""
-        url = green_api_url(cfg, "getContactInfo")
-        r = http_requests.post(url, json={"chatId": chat_id}, timeout=5)
-        data = r.json()
-        return (
-            data.get("name") or
-            data.get("pushname") or
-            data.get("contactName") or
-            ""
-        )
+            return {}
+        url = green_api_url(cfg, "getContacts")
+        r = http_requests.get(url, timeout=15)
+        contacts_list = r.json()
+        contacts = {}
+        for c in contacts_list:
+            chat_id = c.get("id", "")
+            name = c.get("name") or c.get("pushname") or ""
+            if chat_id and name:
+                contacts[chat_id] = name
+        db_set("contacts", contacts)
+        db_set("contacts_updated", datetime.utcnow().isoformat())
+        log.info("Contacts synced: %d contacts", len(contacts))
+        return contacts
     except Exception as e:
-        log.warning("Could not get contact name: %s", e)
-        return ""
+        log.warning("Could not fetch contacts: %s", e)
+        return {}
+
+
+def get_contact_name(chat_id: str) -> str:
+    """Get contact name from local DB cache."""
+    contacts = db_get("contacts", {})
+    # try exact match, then without @c.us suffix
+    return (
+        contacts.get(chat_id) or
+        contacts.get(chat_id.replace("@c.us", "") + "@c.us") or
+        ""
+    )
+
+
+# background contact refresh (every hour)
+import threading
+def _contact_refresh_loop():
+    import time
+    while True:
+        time.sleep(3600)
+        fetch_and_save_contacts()
+
+threading.Thread(target=_contact_refresh_loop, daemon=True).start()
 
 
 # ── webhook ───────────────────────────────────────────────────────────────────
@@ -608,6 +634,20 @@ def gmail_disconnect():
     if DATABASE_URL and POSTGRES_AVAILABLE:
         db_set("gmail_token", None)
     return jsonify({"ok": True})
+
+
+@app.route("/api/contacts/refresh", methods=["POST"])
+def contacts_refresh():
+    contacts = fetch_and_save_contacts()
+    updated = db_get("contacts_updated", "")
+    return jsonify({"ok": True, "count": len(contacts), "updated": updated})
+
+
+@app.route("/api/contacts/status", methods=["GET"])
+def contacts_status():
+    contacts = db_get("contacts", {})
+    updated  = db_get("contacts_updated", "")
+    return jsonify({"count": len(contacts), "updated": updated})
 
 
 @app.route("/api/green/test", methods=["POST"])
