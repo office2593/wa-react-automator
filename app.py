@@ -491,11 +491,13 @@ def webhook():
     sender_name  = contact_name or payload.get("senderData", {}).get("senderName", "") or body.get("senderData", {}).get("senderName", "")
     # extract original message from webhook (quotedMessage contains the reacted-to message)
     quoted = msg_data_outer.get("quotedMessage", {})
+    log.info("quotedMessage: %s", json.dumps(quoted)[:300])
     orig_text = (
         quoted.get("textMessage", "")
         or quoted.get("caption", "")
-        or msg_data_outer.get("extendedTextMessageData", {}).get("text", "")
-        or msg_data_outer.get("textMessageData", {}).get("textMessage", "")
+        or quoted.get("text", "")
+        or (quoted.get("textMessageData") or {}).get("textMessage", "")
+        or (quoted.get("extendedTextMessageData") or {}).get("text", "")
         or ""
     )
     log.info("orig_text from webhook: %r", orig_text[:100] if orig_text else "")
