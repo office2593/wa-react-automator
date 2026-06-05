@@ -311,6 +311,13 @@
         </div>
         <button class="btn btn-ghost" onclick="refreshContacts()" id="btn-refresh-contacts">🔄 רענן</button>
       </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+        <label style="margin:0;white-space:nowrap;color:var(--muted);font-size:.85rem">רענון אוטומטי כל</label>
+        <input id="contacts-interval" type="number" min="1" max="1440" style="width:80px;text-align:center"
+          oninput="saveContactsInterval()" />
+        <span style="color:var(--muted);font-size:.85rem">דקות</span>
+        <span id="contacts-next-refresh" style="color:var(--purple);font-size:.8rem;font-weight:600"></span>
+      </div>
 
       <div class="field">
         <label>Webhook URL — העתק ל-GREEN API Console</label>
@@ -633,6 +640,9 @@ async function loadSettings() {
   document.getElementById('green-token').value    = cfg.green_api_token   || '';
   checkGmailStatus();
   loadContactsStatus();
+  const savedMins = parseInt(localStorage.getItem('contactsIntervalMins')) || 60;
+  document.getElementById('contacts-interval').value = savedMins;
+  startContactsAutoRefresh(savedMins);
 }
 
 async function saveGreenConfig() {
@@ -641,6 +651,26 @@ async function saveGreenConfig() {
     green_api_token:   document.getElementById('green-token').value.trim(),
   })});
   showToast('הגדרות GREEN API נשמרו ✓');
+}
+
+let _contactsIntervalTimer = null;
+
+function saveContactsInterval() {
+  const mins = parseInt(document.getElementById('contacts-interval').value) || 60;
+  localStorage.setItem('contactsIntervalMins', mins);
+  startContactsAutoRefresh(mins);
+}
+
+function startContactsAutoRefresh(mins) {
+  if (_contactsIntervalTimer) clearInterval(_contactsIntervalTimer);
+  if (!mins || mins < 1) return;
+  _contactsIntervalTimer = setInterval(() => {
+    refreshContacts();
+  }, mins * 60 * 1000);
+  // show next refresh time
+  const next = new Date(Date.now() + mins * 60 * 1000);
+  document.getElementById('contacts-next-refresh').textContent =
+    'רענון הבא: ' + next.toLocaleTimeString('he-IL', {hour:'2-digit',minute:'2-digit'});
 }
 
 async function loadContactsStatus() {
