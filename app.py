@@ -384,32 +384,36 @@ def fetch_and_save_contacts() -> dict:
         return {}
 
 
-def get_original_message(chat_id: str, message_id: str) -> str:
-    """Fetch original message text from GREEN API. Returns empty string on any failure."""
-    if not chat_id or not message_id:
+def get_last_message(chat_id: str) -> str:
+    """Fetch the last non-reaction message from chat history."""
+    if not chat_id:
         return ""
     try:
         cfg = load_config()
         if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
             return ""
         url = green_api_url(cfg, "getChatHistory")
-        r = http_requests.post(url, json={"chatId": chat_id, "count": 50}, timeout=10)
+        r = http_requests.post(url, json={"chatId": chat_id, "count": 20}, timeout=10)
         messages = r.json()
         if not isinstance(messages, list):
             return ""
-        for msg in messages:
-            if msg.get("idMessage") == message_id:
-                md = msg.get("messageData", {})
-                return (
-                    md.get("textMessageData", {}).get("textMessage", "")
-                    or md.get("extendedTextMessageData", {}).get("text", "")
-                    or md.get("imageMessageData", {}).get("caption", "")
-                    or md.get("documentMessageData", {}).get("caption", "")
-                    or ""
-                )
+        # find last message that is NOT a reaction
+        for msg in reversed(messages):
+            md = msg.get("messageData", {})
+            type_msg = md.get("typeMessage", "")
+            if type_msg == "reactionMessage":
+                continue
+            text = (
+                md.get("textMessageData", {}).get("textMessage", "")
+                or md.get("extendedTextMessageData", {}).get("text", "")
+                or md.get("imageMessageData", {}).get("caption", "")
+                or md.get("documentMessageData", {}).get("caption", "")
+            )
+            if text:
+                return text
         return ""
     except Exception as e:
-        log.warning("Could not fetch original message: %s", e)
+        log.warning("Could not fetch last message: %s", e)
         return ""
 
 
@@ -485,24 +489,19 @@ def webhook():
     # get contact name (the person in the chat, not the reactor)
     contact_name = get_contact_name(chat_id) if chat_id else ""
     sender_name  = contact_name or payload.get("senderData", {}).get("senderName", "") or body.get("senderData", {}).get("senderName", "")
-    # try to get original message text from webhook first, then fetch from GREEN API
+    # extract original message from webhook (quotedMessage contains the reacted-to message)
+    quoted = msg_data_outer.get("quotedMessage", {})
     orig_text = (
-        msg_data.get("extendedTextMessageData", {}).get("text", "")
-        or msg_data.get("textMessageData", {}).get("textMessage", "")
-        or msg_data.get("quotedMessage", {}).get("textMessage", "")
+        quoted.get("textMessage", "")
+        or quoted.get("caption", "")
+        or msg_data_outer.get("extendedTextMessageData", {}).get("text", "")
+        or msg_data_outer.get("textMessageData", {}).get("textMessage", "")
         or ""
     )
-    if not orig_text:
-        reaction_msg = msg_data_outer.get("reactionMessage", {})
-        log.info("reactionMessage fields: %s", json.dumps(reaction_msg)[:300])
-        reacted_msg_id = (
-            reaction_msg.get("messageId", "")
-            or reaction_msg.get("idMessage", "")
-            or reaction_msg.get("stanzaId", "")
-        )
-        log.info("reacted_msg_id: %r", reacted_msg_id)
-        if reacted_msg_id:
-            orig_text = get_original_message(chat_id, reacted_msg_id)
+    log.info("orig_text from webhook: %r", orig_text[:100] if orig_text else "")
+    if not orig_text and chat_id:
+        orig_text = get_last_message(chat_id)
+        log.info("Fetched last message fallback: %r", orig_text[:100] if orig_text else "")
     timestamp  = datetime.utcnow().isoformat()
 
     rules = load_rules()
