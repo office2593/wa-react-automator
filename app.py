@@ -234,11 +234,11 @@ def webhook():
 
     body = payload.get("body", {})
     type_ = payload.get("typeWebhook", "")
-    log.info("typeWebhook=%s typeMessage=%s", type_, body.get("messageData", {}).get("typeMessage", ""))
 
-    # detect reaction webhooks (GREEN API sends several formats)
-    msg_data_outer = body.get("messageData", {})
+    # GREEN API: messageData can be at top level OR inside body
+    msg_data_outer = payload.get("messageData", {}) or body.get("messageData", {})
     type_message = msg_data_outer.get("typeMessage", "")
+    log.info("typeWebhook=%s typeMessage=%s", type_, type_message)
     is_reaction = (
         type_ in ("outgoingMessageReaction", "incomingMessageReaction")
         or type_message == "reactionMessage"
