@@ -364,31 +364,21 @@
         </div>
         <div class="field">
           <label>אמוג'י שמפעיל את הכלל</label>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="rule-emoji" placeholder="לחץ על הכפתור או הקלד ידנית" style="flex:1" oninput="updatePreview()" />
-            <button type="button" class="btn btn-ghost" style="padding:9px 14px;font-size:1.3rem" onclick="document.getElementById('emoji-input-hack').click()" title="פתח מקלדת אמוג'י">😊</button>
-            <input id="emoji-input-hack" type="text" inputmode="none"
-              style="position:absolute;opacity:0;pointer-events:none;width:0;height:0"
-              onfocus="this.style.opacity='1';this.style.position='fixed';this.style.top='50%';this.style.left='50%';this.style.width='1px';this.style.height='1px'"
-              onblur="this.style.opacity='0';this.style.position='absolute';this.style.width='0';this.style.height='0';if(this.value){document.getElementById('rule-emoji').value=this.value;this.value='';updatePreview();}"
-            />
-          </div>
+          <input id="rule-emoji" placeholder="הקלד אמוג'י (Win + . לפתיחת מקלדת)" />
+          <div class="hint">לפתיחת מקלדת האמוג'י של Windows — לחץ <strong>Win + .</strong></div>
         </div>
         <div class="field">
           <label>שלח מייל אל</label>
-          <input id="rule-email-to" type="email" placeholder="someone@example.com" oninput="updatePreview()" />
+          <input id="rule-email-to" type="email" placeholder="someone@example.com" />
         </div>
         <div class="field">
-          <label>נושא המייל</label>
-          <div style="padding:10px 14px;background:#f8f4fc;border:1.5px solid var(--border);border-radius:10px;color:var(--purple-dark);font-size:.95rem;font-weight:600">
-            {{sender}} — משימה חדשה
-          </div>
-          <input type="hidden" id="rule-subject" value="{{sender}} — משימה חדשה" />
+          <label>שם העובד/ת</label>
+          <input id="rule-employee" placeholder="לדוגמה: מיכל" oninput="updatePreview()" />
+          <div class="hint">השם ישמש ל-AI לניסוח הדוא"ל באופן אישי</div>
         </div>
-        <div class="field">
-          <label>גוף המייל</label>
-          <textarea id="rule-body" placeholder="תוכן ההודעה..." oninput="updatePreview()" style="min-height:180px"></textarea>
-          <div class="var-chips" id="chips-body"></div>
+        <div style="background:var(--grad-light);border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;font-size:.85rem;color:var(--purple-dark);line-height:1.7;display:flex;gap:10px;align-items:flex-start">
+          <span style="font-size:1.2rem;flex-shrink:0">✨</span>
+          <span>כותרת הדוא"ל וגוף ההודעה <strong>יוצרו אוטומטית על ידי AI</strong> בהתאם לתוכן ההודעה מהוואטסאפ — כאילו אורן כתב את המשימה אישית.</span>
         </div>
       </div>
 
@@ -447,7 +437,7 @@ async function loadRules() {
       <div class="rule-emoji">${r.emoji || '❓'}</div>
       <div class="rule-info">
         <strong>${esc(r.name || 'ללא שם')}</strong>
-        <small>→ ${esc(r.email_to || '')} · ${esc(r.email_subject || '')}</small>
+        <small>→ ${esc(r.email_to || '')}${r.employee_name ? ' · עובד/ת: ' + esc(r.employee_name) : ''}</small>
       </div>
       <span class="${r.active ? 'badge-active' : 'badge-inactive'}" onclick="toggleRule('${r.id}',${!r.active})">
         ${r.active ? '● פעיל' : '○ כבוי'}
@@ -465,9 +455,7 @@ function openNewRule() {
   document.getElementById('rule-name').value = '';
   document.getElementById('rule-emoji').value = '';
   document.getElementById('rule-email-to').value = '';
-  document.getElementById('rule-subject').value = '{{sender}} — משימה חדשה';
-  document.getElementById('rule-body').value = 'שלום,\n\nהתקבלה משימה חדשה:\n\nמאת: {{sender}}\nהודעה: {{message}}\nזמן: {{time}}';
-  renderVarChips();
+  document.getElementById('rule-employee').value = '';
   updatePreview();
   document.getElementById('rule-modal').classList.add('open');
 }
@@ -478,29 +466,9 @@ function openEditRule(r) {
   document.getElementById('rule-name').value = r.name || '';
   document.getElementById('rule-emoji').value = r.emoji || '';
   document.getElementById('rule-email-to').value = r.email_to || '';
-  document.getElementById('rule-body').value = r.email_body || '';
-  renderVarChips();
+  document.getElementById('rule-employee').value = r.employee_name || '';
   updatePreview();
   document.getElementById('rule-modal').classList.add('open');
-}
-
-function renderVarChips() {
-  const el = document.getElementById('chips-body');
-  if (!el) return;
-  el.innerHTML = VARS.map(v =>
-    `<span class="var-chip" onclick="insertVar('rule-body','${v.key}')">
-      <span class="chip-icon">${v.icon}</span>${v.label}
-     </span>`
-  ).join('');
-}
-
-function insertVar(fieldId, varKey) {
-  const el = document.getElementById(fieldId);
-  const start = el.selectionStart, end = el.selectionEnd;
-  el.value = el.value.slice(0, start) + varKey + el.value.slice(end);
-  el.selectionStart = el.selectionEnd = start + varKey.length;
-  el.focus();
-  updatePreview();
 }
 
 function closeModal() {
@@ -508,21 +476,11 @@ function closeModal() {
 }
 
 async function saveRule() {
-  const emoji   = document.getElementById('rule-emoji').value.trim();
-  const subject = document.getElementById('rule-subject').value.trim();
-  const bodyTxt = document.getElementById('rule-body').value;
-  const sender  = '{{sender}}';
-  const time    = '{{time}}';
-  const htmlTemplate = buildEmailHtml(emoji, subject, sender, time, bodyTxt.replace(/\n/g,'<br>'))
-    .replace(LOGO_URL, '{{logo_url}}');
-
   const rule = {
-    name:                document.getElementById('rule-name').value.trim(),
-    emoji:               emoji,
-    email_to:            document.getElementById('rule-email-to').value.trim(),
-    email_subject:       subject,
-    email_body:          bodyTxt,
-    email_html_template: htmlTemplate,
+    name:          document.getElementById('rule-name').value.trim(),
+    emoji:         document.getElementById('rule-emoji').value.trim(),
+    email_to:      document.getElementById('rule-email-to').value.trim(),
+    employee_name: document.getElementById('rule-employee').value.trim(),
   };
   if (!rule.emoji || !rule.email_to) { showToast('אמוג\'י וכתובת מייל הם שדות חובה', true); return; }
   if (editingId) {
@@ -548,45 +506,29 @@ async function deleteRule(id) {
 }
 
 // ── email preview ─────────────────────────────────────────────────────────────
-function updatePreview() {
-  const emoji   = document.getElementById('rule-emoji').value || '⏳';
-  const subject = document.getElementById('rule-subject').value || 'נושא המייל';
-  const body    = document.getElementById('rule-body').value || '';
-  const sender  = 'ישראל ישראלי';
-  const time    = new Date().toLocaleString('he-IL');
-
-  const filled = body
-    .replace(/\{\{sender\}\}/g, sender)
-    .replace(/\{\{message\}\}/g, 'טקסט לדוגמה מהוואטסאפ')
-    .replace(/\{\{emoji\}\}/g, emoji)
-    .replace(/\{\{time\}\}/g, time)
-    .replace(/\{\{chat\}\}/g, '972501234567');
-
-  document.getElementById('email-preview-frame').innerHTML = buildEmailHtml(emoji, subject, sender, time, filled);
-}
-
-function buildEmailHtml(emoji, subject, senderName, timestamp, message) {
-  return `<div style="font-family:'Segoe UI',Arial,sans-serif;direction:rtl;background:#f4f0f8">
-  <div style="background:linear-gradient(135deg,#7B2D8B 0%,#4a0a6b 50%,#1a0030 100%);padding:24px;text-align:center">
-    <img src="${LOGO_URL}" style="max-height:56px;max-width:160px;object-fit:contain" onerror="this.style.display='none'" />
+function buildEmailHtml(employeeName) {
+  const name = employeeName || '[שם העובד/ת]';
+  const sampleBody = `היי ${name},<br><br>ישראל ישראלי ביקש לעבור על הדוחות הכספיים של הרבעון הראשון.`;
+  return `<div style="font-family:David,Arial,sans-serif;direction:rtl;background:#f4f0f8">
+  <div style="background:linear-gradient(135deg,#4a0a6b 0%,#1a0030 100%);padding:30px 24px;text-align:center">
+    <div style="font-size:26px;font-weight:700;color:#fff;font-family:David,Arial,sans-serif;letter-spacing:1px">אורן דולב</div>
+    <div style="font-size:15px;color:#c084d8;font-family:David,Arial,sans-serif;margin-top:6px;letter-spacing:2px">רואה חשבון</div>
   </div>
-  <div style="height:4px;background:linear-gradient(90deg,#7B2D8B,#c084d8,#7B2D8B)"></div>
-  <div style="padding:24px 20px;background:#fff">
-    <div style="text-align:center;margin-bottom:20px">
-      <div style="display:inline-block;font-size:28px;background:#f8f4fc;border-radius:50%;width:52px;height:52px;line-height:52px;text-align:center">${emoji}</div>
-      <h2 style="margin:8px 0 0;color:#1a0030;font-size:18px">${esc(subject)}</h2>
-    </div>
-    <div style="font-size:11px;font-weight:700;color:#7B2D8B;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">מאת</div>
-    <div style="font-size:14px;color:#1a1a2e;margin-bottom:16px;padding:8px 12px;background:#f8f4fc;border-right:3px solid #7B2D8B;border-radius:0 8px 8px 0">${esc(senderName)}</div>
-    <div style="font-size:11px;font-weight:700;color:#7B2D8B;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">תאריך ושעה</div>
-    <div style="font-size:14px;color:#1a1a2e;margin-bottom:16px;padding:8px 12px;background:#f8f4fc;border-right:3px solid #7B2D8B;border-radius:0 8px 8px 0">${esc(timestamp)}</div>
-    <div style="font-size:11px;font-weight:700;color:#7B2D8B;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">הודעה</div>
-    <div style="background:linear-gradient(135deg,#f8f4fc,#f0e8f8);border-radius:10px;padding:16px;font-size:14px;color:#2d2d2d;line-height:1.7;white-space:pre-wrap">${esc(message)}</div>
+  <div style="height:5px;background:linear-gradient(90deg,#7B2D8B,#c084d8)"></div>
+  <div style="padding:32px 32px 28px;background:#fff">
+    <div style="font-size:17px;color:#2d2d2d;line-height:1.9;font-family:David,Arial,sans-serif">${sampleBody}</div>
   </div>
-  <div style="background:#1a0030;color:#c084d8;text-align:center;padding:14px;font-size:12px">
+  <div style="height:1px;background:#e0d0f0;margin:0 32px"></div>
+  <div style="background:linear-gradient(135deg,#1a0030,#4a0a6b);padding:16px;text-align:center;font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif">
     אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp
   </div>
 </div>`;
+}
+
+function updatePreview() {
+  const employee = document.getElementById('rule-employee') ? document.getElementById('rule-employee').value : '';
+  const frame = document.getElementById('email-preview-frame');
+  if (frame) frame.innerHTML = buildEmailHtml(employee);
 }
 
 // ── log ────────────────────────────────────────────────────────────────────────
@@ -746,7 +688,6 @@ function showToast(msg, isError=false) {
 
 // ── init ───────────────────────────────────────────────────────────────────────
 loadRules();
-renderVarChips();
 </script>
 </body>
 </html>
