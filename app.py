@@ -279,22 +279,20 @@ def build_email_html(body_text: str) -> str:
 
   <!-- HEADER -->
   <tr>
-    <td align="center" style="padding:0;margin:0;font-size:0;line-height:0">
+    <td align="center" bgcolor="#2d0050" style="padding:30px 24px;background:linear-gradient(135deg,#4a0a6b 0%,#1a0030 100%);text-align:center">
       <!--[if mso]>
-      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:110px;display:block">
+      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:552px;height:110px;display:block">
       <v:fill type="gradient" color="#4a0a6b" color2="#1a0030" angle="135"/>
-      <v:textbox inset="0,24pt,0,24pt" style="mso-fit-shape-to-text:false">
-      <table width="600" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle">
+      <v:textbox inset="0,24pt,0,24pt" style="mso-fit-shape-to-text:true">
+      <table width="552" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle">
       <p style="margin:0;font-size:26px;font-weight:bold;color:#ffffff;font-family:David,Arial,sans-serif;text-align:center">אורן דולב</p>
       <p style="margin:8px 0 0 0;font-size:15px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;letter-spacing:2px">רואה חשבון</p>
       </td></tr></table>
       </v:textbox></v:rect>
       <![endif]-->
       <!--[if !mso]><!-->
-      <div style="background:linear-gradient(135deg,#4a0a6b 0%,#1a0030 100%);padding:30px 24px;text-align:center">
-        <div style="font-size:26px;font-weight:bold;color:#ffffff;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.2">אורן דולב</div>
-        <div style="font-size:15px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;letter-spacing:2px;direction:rtl;margin-top:8px;line-height:1.2">רואה חשבון</div>
-      </div>
+      <div style="font-size:26px;font-weight:bold;color:#ffffff;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.2">אורן דולב</div>
+      <div style="font-size:15px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;letter-spacing:2px;direction:rtl;margin-top:8px;line-height:1.2">רואה חשבון</div>
       <!--<![endif]-->
     </td>
   </tr>
@@ -328,21 +326,19 @@ def build_email_html(body_text: str) -> str:
 
   <!-- FOOTER -->
   <tr>
-    <td align="center" style="padding:0;font-size:0;line-height:0">
+    <td align="center" bgcolor="#1a0030" style="padding:16px 24px;background:linear-gradient(135deg,#1a0030 0%,#4a0a6b 100%);text-align:center">
       <!--[if mso]>
-      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:56px;display:block">
+      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:552px;height:48px;display:block">
       <v:fill type="gradient" color="#1a0030" color2="#4a0a6b" angle="135"/>
       <v:textbox inset="0,14pt,0,14pt" style="mso-fit-shape-to-text:false">
-      <table width="600" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle">
+      <table width="552" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle">
       <p style="margin:0;font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center">אורן דולב &#8212; רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp</p>
       </td></tr></table>
       </v:textbox></v:rect>
       <![endif]-->
       <!--[if !mso]><!-->
-      <div style="background:linear-gradient(135deg,#1a0030 0%,#4a0a6b 100%);padding:16px 24px;text-align:center">
-        <div style="font-size:13px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.5">אורן דולב — רואה חשבון</div>
-        <div style="font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.5;margin-top:4px">נשלח אוטומטית ממערכת WhatsApp</div>
-      </div>
+      <div style="font-size:13px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.5">אורן דולב — רואה חשבון</div>
+      <div style="font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.5;margin-top:4px">נשלח אוטומטית ממערכת WhatsApp</div>
       <!--<![endif]-->
     </td>
   </tr>
