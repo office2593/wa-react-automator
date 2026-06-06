@@ -212,13 +212,14 @@ def generate_email_content(sender_name: str, message: str, employee_name: str) -
             f'אורן קיבל הודעת וואטסאפ מ"{sender_name}" עם התוכן הבא:\n'
             f'"{message}"\n\n'
             f'כתוב דוא"ל קצר בעברית עסקית-ידידותית ל{employee_name}.\n'
-            f'הדוא"ל יכיל פנייה קצרה ("היי {employee_name}," / "שלום {employee_name},") '
-            f'ואז משפט אחד או שניים בסגנון:\n'
-            f'"[שם השולח] [פעולה/בקשה שלו בלשון עבר קצרה]."\n'
+            f'מבנה הדוא"ל:\n'
+            f'שורה 1: פנייה בלבד ("היי {employee_name}," או "שלום {employee_name},")\n'
+            f'שורה ריקה\n'
+            f'שורה 3: משפט אחד או שניים בסגנון "[שם השולח] [פעולה/בקשה בלשון עבר קצרה]."\n'
             f'לא לכתוב בגוף ראשון. לא לכתוב חתימה.\n'
             f'החזר JSON בלבד עם שני שדות: "subject" ו-"body".\n'
             f'subject = שם השולח + תמצות קצר של הבקשה.\n'
-            f'body = פנייה + משפט אחד-שניים בסגנון שתואר.'
+            f'body = הטקסט המלא כפי שתואר, עם ירידת שורה (\n) בין הפנייה לגוף.'
         )
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -266,81 +267,83 @@ def build_email_html(body_text: str) -> str:
 <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
 <![endif]-->
 <style>
-  body,table,td{{margin:0;padding:0;font-family:David,Arial,sans-serif;direction:rtl}}
+  body,table,td{{margin:0;padding:0;font-family:David,Arial,sans-serif;direction:rtl;text-align:right}}
 </style>
 </head>
-<body style="background:#f4f0f8;margin:0;padding:20px 0">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f0f8">
-<tr><td align="center">
+<body style="margin:0;padding:20px 0;background:#f4f0f8;direction:rtl">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f0f8" style="background:#f4f0f8">
+<tr><td align="center" style="padding:20px 0">
+
 <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border:1px solid #e0d0f0">
 
   <!-- HEADER -->
   <tr>
-    <td style="padding:0;margin:0">
+    <td align="center" style="padding:0;margin:0;font-size:0;line-height:0">
       <!--[if mso]>
       <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:110px;">
       <v:fill type="gradient" color="#4a0a6b" color2="#1a0030" angle="135"/>
-      <v:textbox inset="0,0,0,0">
+      <v:textbox inset="0,24pt,0,24pt">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center">
       <![endif]-->
       <div style="background:linear-gradient(135deg,#4a0a6b 0%,#1a0030 100%);padding:30px 24px;text-align:center">
-        <div style="font-size:26px;font-weight:700;color:#ffffff;font-family:David,Arial,sans-serif;letter-spacing:1px">
-          אורן דולב
-        </div>
-        <div style="font-size:15px;color:#c084d8;font-family:David,Arial,sans-serif;margin-top:6px;letter-spacing:2px">
-          רואה חשבון
-        </div>
+        <div style="font-size:26px;font-weight:bold;color:#ffffff;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.2">אורן דולב</div>
+        <div style="font-size:15px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;letter-spacing:2px;direction:rtl;margin-top:8px;line-height:1.2">רואה חשבון</div>
       </div>
-      <!--[if mso]></v:textbox></v:rect><![endif]-->
+      <!--[if mso]>
+      </td></tr></table>
+      </v:textbox></v:rect>
+      <![endif]-->
     </td>
   </tr>
 
   <!-- ACCENT BAR -->
   <tr>
-    <td style="padding:0;margin:0;font-size:0;line-height:0">
+    <td height="5" style="padding:0;font-size:0;line-height:0">
       <!--[if mso]>
       <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:5px;">
       <v:fill type="gradient" color="#7B2D8B" color2="#c084d8" angle="0"/>
-      <v:textbox inset="0,0,0,0"><div style="height:5px"></div></v:textbox>
+      <v:textbox inset="0,0,0,0"><p style="margin:0;font-size:0">&nbsp;</p></v:textbox>
       </v:rect>
       <![endif]-->
       <!--[if !mso]><!-->
-      <div style="background:linear-gradient(90deg,#7B2D8B 0%,#c084d8 100%);height:5px;font-size:0;line-height:0">&nbsp;</div>
+      <div style="background:linear-gradient(90deg,#7B2D8B 0%,#c084d8 100%);height:5px;line-height:5px;font-size:0">&nbsp;</div>
       <!--<![endif]-->
     </td>
   </tr>
 
   <!-- BODY -->
   <tr>
-    <td style="padding:32px 32px 28px;background:#ffffff">
-      <div style="font-size:17px;color:#2d2d2d;line-height:1.9;font-family:David,Arial,sans-serif">
-        {msg}
-      </div>
+    <td align="right" style="padding:32px;background:#ffffff;direction:rtl;text-align:right;font-family:David,Arial,sans-serif;font-size:17px;color:#2d2d2d;line-height:1.9">
+      {msg}
     </td>
   </tr>
 
   <!-- DIVIDER -->
   <tr>
-    <td style="padding:0 32px;font-size:0;line-height:0">
-      <div style="height:1px;background:#e0d0f0;font-size:0;line-height:0">&nbsp;</div>
-    </td>
+    <td style="padding:0 32px;font-size:0;line-height:0;height:1px;background:#e0d0f0">&nbsp;</td>
   </tr>
 
   <!-- FOOTER -->
   <tr>
-    <td style="padding:0;margin:0">
+    <td align="center" style="padding:0;font-size:0;line-height:0">
       <!--[if mso]>
-      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:50px;">
+      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:48px;">
       <v:fill type="gradient" color="#1a0030" color2="#4a0a6b" angle="135"/>
-      <v:textbox inset="0,12pt,0,12pt">
+      <v:textbox inset="0,14pt,0,14pt">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center">
       <![endif]-->
-      <div style="background:linear-gradient(135deg,#1a0030 0%,#4a0a6b 100%);padding:16px;text-align:center;font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif">
-        אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp
+      <div style="background:linear-gradient(135deg,#1a0030 0%,#4a0a6b 100%);padding:16px 24px;text-align:center">
+        <div style="font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;direction:rtl">אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp</div>
       </div>
-      <!--[if mso]></v:textbox></v:rect><![endif]-->
+      <!--[if mso]>
+      </td></tr></table>
+      </v:textbox></v:rect>
+      <![endif]-->
     </td>
   </tr>
 
 </table>
+
 </td></tr>
 </table>
 </body>
