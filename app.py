@@ -274,7 +274,7 @@ def build_email_html(body_text: str) -> str:
 <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f0f8" style="background:#f4f0f8">
 <tr><td align="center" style="padding:20px 0">
 
-<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border:1px solid #e0d0f0">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border:1px solid #e0d0f0">
 
   <!-- HEADER -->
   <tr>
@@ -313,7 +313,7 @@ def build_email_html(body_text: str) -> str:
 
   <!-- BODY -->
   <tr>
-    <td align="right" style="padding:32px;background:#ffffff;direction:rtl;text-align:right;font-family:David,Arial,sans-serif;font-size:17px;color:#2d2d2d;line-height:1.9">
+    <td align="right" style="padding:24px 5%;background:#ffffff;direction:rtl;text-align:right;font-family:David,Arial,sans-serif;font-size:17px;color:#2d2d2d;line-height:1.9">
       {msg}
     </td>
   </tr>
