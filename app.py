@@ -285,8 +285,8 @@ def build_email_html(body_text: str) -> str:
       <v:fill type="gradient" color="#4a0a6b" color2="#1a0030" angle="90"/>
       <v:textbox inset="0,0,0,0">
       <![endif]-->
-      <table width="600" cellpadding="0" cellspacing="0" border="0">
-      <tr><td align="center" valign="middle" style="padding:30px 24px;font-family:David,Arial,sans-serif">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr><td align="center" valign="middle" style="padding:30px 24px;font-family:David,Arial,sans-serif;text-align:center">
       <p style="margin:0;font-size:26px;font-weight:bold;color:#ffffff;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.2">אורן דולב</p>
       <p style="margin:8px 0 0 0;font-size:15px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;letter-spacing:2px;direction:rtl;line-height:1.2">רואה חשבון</p>
       </td></tr>
@@ -332,8 +332,8 @@ def build_email_html(body_text: str) -> str:
       <v:fill type="gradient" color="#1a0030" color2="#4a0a6b" angle="90"/>
       <v:textbox inset="0,0,0,0">
       <![endif]-->
-      <table width="600" cellpadding="0" cellspacing="0" border="0">
-      <tr><td align="center" valign="middle" style="padding:16px 24px;font-family:David,Arial,sans-serif">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr><td align="center" valign="middle" style="padding:16px 24px;font-family:David,Arial,sans-serif;text-align:center">
       <p style="margin:0;font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.5">אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp</p>
       </td></tr>
       </table>
