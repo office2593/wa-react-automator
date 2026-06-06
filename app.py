@@ -209,13 +209,14 @@ def generate_email_content(sender_name: str, message: str, employee_name: str) -
         client = _OpenAI(api_key=api_key)
         prompt = (
             f'אתה עוזר של אורן דולב, רואה חשבון.\n'
-            f'אורן קיבל הודעת וואטסאפ מ"{sender_name}" עם התוכן הבא:\n'
+            f'אורן קיבל הודעת וואטסאפ מהלקוח {sender_name} עם התוכן הבא:\n'
             f'"{message}"\n\n'
+            f'שם הלקוח הוא {sender_name} — כלול אותו בתחילת המשפט בגוף המייל.\n\n'
             f'כתוב דוא"ל קצר בעברית עסקית-ידידותית ל{employee_name}.\n'
             f'מבנה הדוא"ל:\n'
             f'שורה 1: פנייה בלבד ("היי {employee_name}," או "שלום {employee_name},")\n'
             f'שורה ריקה\n'
-            f'שורה 3: משפט אחד או שניים בסגנון "[שם השולח] [פעולה/בקשה בלשון עבר קצרה]."\n'
+            f'שורה 3: משפט אחד או שניים שמתחיל בשם הלקוח ומתאר את הבקשה בלשון עבר קצרה.\n'
             f'לא לכתוב בגוף ראשון. לא לכתוב חתימה.\n'
             f'החזר JSON בלבד עם שני שדות: "subject" ו-"body".\n'
             f'subject = שם השולח + תמצות קצר של הבקשה.\n'
@@ -270,11 +271,11 @@ def build_email_html(body_text: str) -> str:
   body,table,td{{margin:0;padding:0;font-family:David,Arial,sans-serif;direction:rtl;text-align:right}}
 </style>
 </head>
-<body style="margin:0;padding:20px 0;background:#f4f0f8;direction:rtl">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f0f8" style="background:#f4f0f8">
+<body style="margin:0;padding:20px 0;background:#f4f0f8;direction:ltr">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f0f8" style="background:#f4f0f8;direction:ltr">
 <tr><td align="center" style="padding:20px 0">
 
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border:1px solid #e0d0f0">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" align="center" style="max-width:600px;background:#ffffff;border:1px solid #e0d0f0">
 
   <!-- HEADER -->
   <tr>
@@ -333,7 +334,8 @@ def build_email_html(body_text: str) -> str:
       <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center">
       <![endif]-->
       <div style="background:linear-gradient(135deg,#1a0030 0%,#4a0a6b 100%);padding:16px 24px;text-align:center">
-        <div style="font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;direction:rtl">אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp</div>
+        <div style="font-size:13px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.5">אורן דולב — רואה חשבון</div>
+        <div style="font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;direction:rtl;line-height:1.5;margin-top:4px">נשלח אוטומטית ממערכת WhatsApp</div>
       </div>
       <!--[if mso]>
       </td></tr></table>
