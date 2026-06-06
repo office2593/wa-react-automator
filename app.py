@@ -5,6 +5,7 @@ Data stored in PostgreSQL (Railway) or local JSON files (development).
 """
 import json
 import os
+import re
 import base64
 import logging
 from datetime import datetime
@@ -527,6 +528,7 @@ def webhook():
     # get contact name (the person in the chat, not the reactor)
     contact_name = get_contact_name(chat_id) if chat_id else ""
     sender_name  = contact_name or payload.get("senderData", {}).get("senderName", "") or body.get("senderData", {}).get("senderName", "")
+    sender_name  = re.sub(r'^(לקוח|לקוחה)\s*|\s*(לקוח|לקוחה)$', '', sender_name).strip()
     # extract original message from webhook (quotedMessage contains the reacted-to message)
     quoted = msg_data_outer.get("quotedMessage", {})
     log.info("quotedMessage: %s", json.dumps(quoted)[:300])
