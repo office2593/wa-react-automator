@@ -25,6 +25,13 @@ try:
 except ImportError:
     GOOGLE_LIBS = False
 
+# ── OpenAI ────────────────────────────────────────────────────────────────────
+try:
+    from openai import OpenAI as _OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
 # ── PostgreSQL ────────────────────────────────────────────────────────────────
 try:
     import psycopg2
@@ -187,6 +194,48 @@ def save_gmail_token(token_dict):
         db_set("gmail_token", token_dict)
 
 
+# ── AI email generation ───────────────────────────────────────────────────────
+
+def generate_email_content(sender_name: str, message: str, employee_name: str) -> dict:
+    """Call OpenAI API to generate a human-sounding email subject and body."""
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key or not OPENAI_AVAILABLE:
+        log.warning("OpenAI API key missing or library not installed — using fallback")
+        return {
+            "subject": f"{sender_name} — הודעה חדשה",
+            "body": f"היי {employee_name},\n\n{sender_name} שלח הודעה:\n{message}"
+        }
+    try:
+        client = _OpenAI(api_key=api_key)
+        prompt = (
+            f'אתה עוזר של אורן דולב, רואה חשבון.\n'
+            f'אורן קיבל הודעת וואטסאפ מ"{sender_name}" עם התוכן הבא:\n'
+            f'"{message}"\n\n'
+            f'כתוב דוא"ל קצר בעברית עסקית-ידידותית ל{employee_name}.\n'
+            f'הדוא"ל יכיל פנייה קצרה ("היי {employee_name}," / "שלום {employee_name},") '
+            f'ואז משפט אחד או שניים בסגנון:\n'
+            f'"[שם השולח] [פעולה/בקשה שלו בלשון עבר קצרה]."\n'
+            f'לא לכתוב בגוף ראשון. לא לכתוב חתימה.\n'
+            f'החזר JSON בלבד עם שני שדות: "subject" ו-"body".\n'
+            f'subject = שם השולח + תמצות קצר של הבקשה.\n'
+            f'body = פנייה + משפט אחד-שניים בסגנון שתואר.'
+        )
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=300,
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = resp.choices[0].message.content.strip()
+        return json.loads(raw)
+    except Exception as e:
+        log.error("AI email generation failed: %s", e)
+        return {
+            "subject": f"{sender_name} — הודעה חדשה",
+            "body": f"היי {employee_name},\n\n{sender_name} שלח הודעה:\n{message}"
+        }
+
+
 # ── Gmail send ────────────────────────────────────────────────────────────────
 
 def get_gmail_service():
@@ -205,12 +254,9 @@ def get_gmail_service():
     return build("gmail", "v1", credentials=creds)
 
 
-def build_email_html(emoji: str, subject: str, sender_name: str, timestamp: str, message: str, logo_url: str) -> str:
-    """Build Outlook-compatible HTML email. In the future, AI can enhance subject/message here."""
-    ts_formatted = timestamp.replace("T", " ")[:19]
-    sn   = sender_name or "לא ידוע"
-    msg  = (message or "(אין הודעה מקורית)").replace("\n", "<br>")
-
+def build_email_html(body_text: str) -> str:
+    """Build Outlook-compatible HTML email with David font and purple gradient design."""
+    msg = (body_text or "").replace("\n", "<br>")
     return f"""<!DOCTYPE html>
 <html dir="rtl" lang="he" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
@@ -220,8 +266,7 @@ def build_email_html(emoji: str, subject: str, sender_name: str, timestamp: str,
 <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
 <![endif]-->
 <style>
-  body,table,td{{margin:0;padding:0;font-family:Arial,sans-serif;direction:rtl}}
-  img{{border:0;display:block}}
+  body,table,td{{margin:0;padding:0;font-family:David,Arial,sans-serif;direction:rtl}}
 </style>
 </head>
 <body style="background:#f4f0f8;margin:0;padding:20px 0">
@@ -231,92 +276,67 @@ def build_email_html(emoji: str, subject: str, sender_name: str, timestamp: str,
 
   <!-- HEADER -->
   <tr>
-    <td align="center" bgcolor="#4a0a6b" style="background:#4a0a6b;padding:28px 24px">
+    <td style="padding:0;margin:0">
       <!--[if mso]>
-      <table><tr><td style="background:#4a0a6b">
+      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:110px;">
+      <v:fill type="gradient" color="#4a0a6b" color2="#1a0030" angle="135"/>
+      <v:textbox inset="0,0,0,0">
       <![endif]-->
-      <img src="{logo_url}" width="140" alt="אורן דולב" style="display:block;margin:0 auto;max-width:140px;height:auto" />
-      <!--[if mso]></td></tr></table><![endif]-->
+      <div style="background:linear-gradient(135deg,#4a0a6b 0%,#1a0030 100%);padding:30px 24px;text-align:center">
+        <div style="font-size:26px;font-weight:700;color:#ffffff;font-family:David,Arial,sans-serif;letter-spacing:1px">
+          אורן דולב
+        </div>
+        <div style="font-size:15px;color:#c084d8;font-family:David,Arial,sans-serif;margin-top:6px;letter-spacing:2px">
+          רואה חשבון
+        </div>
+      </div>
+      <!--[if mso]></v:textbox></v:rect><![endif]-->
     </td>
   </tr>
 
   <!-- ACCENT BAR -->
   <tr>
-    <td height="5" bgcolor="#7B2D8B" style="background:#7B2D8B;font-size:0;line-height:0">&nbsp;</td>
-  </tr>
-
-  <!-- EMOJI + TITLE -->
-  <tr>
-    <td align="center" style="padding:28px 24px 12px;background:#ffffff">
-      <table cellpadding="0" cellspacing="0" border="0" align="center">
-        <tr>
-          <td align="center" bgcolor="#f8f4fc" width="60" height="60"
-              style="background:#f8f4fc;border:2px solid #c084d8;border-radius:30px;font-size:30px;text-align:center;line-height:60px;padding:0 8px">
-            {emoji}
-          </td>
-        </tr>
-        <tr>
-          <td align="center" style="padding-top:12px;font-size:20px;font-weight:bold;color:#1a0030;font-family:Arial,sans-serif">
-            {subject}
-          </td>
-        </tr>
-      </table>
+    <td style="padding:0;margin:0;font-size:0;line-height:0">
+      <!--[if mso]>
+      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:5px;">
+      <v:fill type="gradient" color="#7B2D8B" color2="#c084d8" angle="0"/>
+      <v:textbox inset="0,0,0,0"><div style="height:5px"></div></v:textbox>
+      </v:rect>
+      <![endif]-->
+      <!--[if !mso]><!-->
+      <div style="background:linear-gradient(90deg,#7B2D8B 0%,#c084d8 100%);height:5px;font-size:0;line-height:0">&nbsp;</div>
+      <!--<![endif]-->
     </td>
   </tr>
 
   <!-- BODY -->
   <tr>
-    <td style="padding:8px 32px 24px;background:#ffffff">
+    <td style="padding:32px 32px 28px;background:#ffffff">
+      <div style="font-size:17px;color:#2d2d2d;line-height:1.9;font-family:David,Arial,sans-serif">
+        {msg}
+      </div>
+    </td>
+  </tr>
 
-      <!-- מאת -->
-      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:16px">
-        <tr>
-          <td style="font-size:11px;font-weight:bold;color:#7B2D8B;text-transform:uppercase;letter-spacing:1px;padding-bottom:5px;font-family:Arial,sans-serif">
-            מאת
-          </td>
-        </tr>
-        <tr>
-          <td bgcolor="#f8f4fc" style="background:#f8f4fc;border-right:4px solid #7B2D8B;padding:10px 14px;font-size:15px;color:#1a1a2e;font-family:Arial,sans-serif">
-            {sn}
-          </td>
-        </tr>
-      </table>
-
-      <!-- תאריך -->
-      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:16px">
-        <tr>
-          <td style="font-size:11px;font-weight:bold;color:#7B2D8B;text-transform:uppercase;letter-spacing:1px;padding-bottom:5px;font-family:Arial,sans-serif">
-            תאריך ושעה
-          </td>
-        </tr>
-        <tr>
-          <td bgcolor="#f8f4fc" style="background:#f8f4fc;border-right:4px solid #7B2D8B;padding:10px 14px;font-size:15px;color:#1a1a2e;font-family:Arial,sans-serif">
-            {ts_formatted}
-          </td>
-        </tr>
-      </table>
-
-      <!-- הודעה -->
-      <table width="100%" cellpadding="0" cellspacing="0" border="0">
-        <tr>
-          <td style="font-size:11px;font-weight:bold;color:#7B2D8B;text-transform:uppercase;letter-spacing:1px;padding-bottom:5px;font-family:Arial,sans-serif">
-            הודעה מקורית
-          </td>
-        </tr>
-        <tr>
-          <td bgcolor="#f0e8f8" style="background:#f0e8f8;padding:16px;font-size:15px;color:#2d2d2d;line-height:1.7;font-family:Arial,sans-serif">
-            {msg}
-          </td>
-        </tr>
-      </table>
-
+  <!-- DIVIDER -->
+  <tr>
+    <td style="padding:0 32px;font-size:0;line-height:0">
+      <div style="height:1px;background:#e0d0f0;font-size:0;line-height:0">&nbsp;</div>
     </td>
   </tr>
 
   <!-- FOOTER -->
   <tr>
-    <td align="center" bgcolor="#1a0030" style="background:#1a0030;padding:16px;font-size:12px;color:#c084d8;font-family:Arial,sans-serif">
-      אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp
+    <td style="padding:0;margin:0">
+      <!--[if mso]>
+      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:50px;">
+      <v:fill type="gradient" color="#1a0030" color2="#4a0a6b" angle="135"/>
+      <v:textbox inset="0,12pt,0,12pt">
+      <![endif]-->
+      <div style="background:linear-gradient(135deg,#1a0030 0%,#4a0a6b 100%);padding:16px;text-align:center;font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif">
+        אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp
+      </div>
+      <!--[if mso]></v:textbox></v:rect><![endif]-->
     </td>
   </tr>
 
@@ -327,21 +347,15 @@ def build_email_html(emoji: str, subject: str, sender_name: str, timestamp: str,
 </html>"""
 
 
-def send_gmail(to: str, subject: str, body: str, sender_name: str = "",
-               emoji: str = "", timestamp: str = "", message: str = "", logo_url: str = ""):
+def send_gmail(to: str, subject: str, body_text: str):
     service = get_gmail_service()
     msg = MIMEMultipart("alternative")
     msg["To"]      = to
     msg["Subject"] = subject
     msg["From"]    = "me"
 
-    # plain text fallback
-    plain = f"{subject}\nמאת: {sender_name}\nתאריך: {timestamp}\n\n{message}"
-    msg.attach(MIMEText(plain, "plain", "utf-8"))
-
-    # HTML version
-    html_body = build_email_html(emoji, subject, sender_name, timestamp, message, logo_url)
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
+    msg.attach(MIMEText(body_text, "plain", "utf-8"))
+    msg.attach(MIMEText(build_email_html(body_text), "html", "utf-8"))
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
@@ -545,26 +559,12 @@ def webhook():
     errors = []
     for rule in matched:
         to_email = rule.get("email_to", "")
-        raw_subject = rule.get("email_subject", "{{sender}} — משימה חדשה")
-        subject = raw_subject.replace("{{sender}}", sender_name or sender)
-
-        def fill(t):
-            return (t or "").replace("{{emoji}}", reaction).replace("{{sender}}", sender_name or sender).replace("{{chat}}", chat_id).replace("{{message}}", orig_text).replace("{{time}}", timestamp)
-
-        # use pre-built HTML template from rule if available, else build from body
-        railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
-        logo_url = f"https://{railway_domain}/logo.png" if railway_domain else "/logo.png"
-        html_template = rule.get("email_html_template", "")
-        if html_template:
-            body_txt = fill(html_template).replace("{{logo_url}}", logo_url)
-        else:
-            body_txt = fill(rule.get("email_body", ""))
+        employee_name = rule.get("employee_name", "")
+        ai_result = generate_email_content(sender_name or sender, orig_text, employee_name)
+        subject   = ai_result.get("subject", f"{sender_name or sender} — הודעה חדשה")
+        body_txt  = ai_result.get("body", orig_text)
         try:
-            send_gmail(
-                to=to_email, subject=subject, body=body_txt,
-                sender_name=sender_name, emoji=reaction,
-                timestamp=timestamp, message=orig_text, logo_url=logo_url
-            )
+            send_gmail(to=to_email, subject=subject, body_text=body_txt)
             append_log({
                 "time": timestamp, "emoji": reaction, "sender": sender,
                 "sender_name": sender_name, "chat": chat_id, "original_text": orig_text,
