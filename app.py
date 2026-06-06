@@ -281,10 +281,10 @@ def build_email_html(body_text: str) -> str:
   <tr>
     <td align="center" bgcolor="#2d0050" style="padding:30px 24px;background:linear-gradient(135deg,#4a0a6b 0%,#1a0030 100%);text-align:center">
       <!--[if mso]>
-      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:552px;height:110px;display:block">
-      <v:fill type="gradient" color="#4a0a6b" color2="#1a0030" angle="135"/>
-      <v:textbox inset="0,24pt,0,24pt" style="mso-fit-shape-to-text:true">
-      <table width="552" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle">
+      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:552px;height:130px;display:block">
+      <v:fill type="gradient" color="#4a0a6b" color2="#1a0030" angle="90"/>
+      <v:textbox inset="0,0,0,0" style="mso-fit-shape-to-text:false">
+      <table width="552" height="130" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle" style="padding:0">
       <p style="margin:0;font-size:26px;font-weight:bold;color:#ffffff;font-family:David,Arial,sans-serif;text-align:center">אורן דולב</p>
       <p style="margin:8px 0 0 0;font-size:15px;color:#c084d8;font-family:David,Arial,sans-serif;text-align:center;letter-spacing:2px">רואה חשבון</p>
       </td></tr></table>
