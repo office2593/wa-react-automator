@@ -58,6 +58,7 @@ RULES_FILE  = DATA_DIR / "rules.json"
 LOG_FILE    = DATA_DIR / "log.json"
 TASKS_FILE  = DATA_DIR / "tasks.json"
 GROUPS_FILE = DATA_DIR / "groups.json"
+BUTTON_MSGS_FILE = DATA_DIR / "button_messages.json"
 CONFIG_FILE = DATA_DIR / "config.json"
 TOKEN_FILE  = DATA_DIR / "gmail_token.json"
 
@@ -214,6 +215,19 @@ def save_groups(data):
         db_set("groups", data)
     else:
         save_json(GROUPS_FILE, data)
+
+
+def load_button_messages():
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        return db_get("button_messages", [])
+    return load_json(BUTTON_MSGS_FILE, [])
+
+
+def save_button_messages(data):
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("button_messages", data)
+    else:
+        save_json(BUTTON_MSGS_FILE, data)
 
 
 def load_gmail_token():
@@ -945,6 +959,61 @@ def delete_group(gid):
     if len(new_groups) == len(groups):
         return jsonify({"error": "not found"}), 404
     save_groups(new_groups)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/button-messages", methods=["GET"])
+def get_button_messages():
+    return jsonify(load_button_messages())
+
+
+@app.route("/api/button-messages", methods=["POST"])
+def create_button_message():
+    body = request.get_json() or {}
+    name = (body.get("name") or "").strip()
+    text = (body.get("text") or "").strip()
+    buttons = [b.strip() for b in (body.get("buttons") or []) if (b or "").strip()][:3]
+    if not name or not text or not buttons:
+        return jsonify({"error": "name, text and at least one button are required"}), 400
+    msg = {
+        "id": datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+        "name": name,
+        "text": text,
+        "buttons": buttons,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    msgs = load_button_messages()
+    msgs.insert(0, msg)
+    save_button_messages(msgs)
+    return jsonify(msg)
+
+
+@app.route("/api/button-messages/<mid>", methods=["PUT"])
+def update_button_message(mid):
+    body = request.get_json() or {}
+    msgs = load_button_messages()
+    for i, m in enumerate(msgs):
+        if m["id"] == mid:
+            if "name" in body:
+                m["name"] = (body["name"] or "").strip()
+            if "text" in body:
+                m["text"] = (body["text"] or "").strip()
+            if "buttons" in body:
+                m["buttons"] = [b.strip() for b in (body["buttons"] or []) if (b or "").strip()][:3]
+            m["updated_at"] = datetime.utcnow().isoformat()
+            msgs[i] = m
+            save_button_messages(msgs)
+            return jsonify(m)
+    return jsonify({"error": "not found"}), 404
+
+
+@app.route("/api/button-messages/<mid>", methods=["DELETE"])
+def delete_button_message(mid):
+    msgs = load_button_messages()
+    new_msgs = [m for m in msgs if m["id"] != mid]
+    if len(new_msgs) == len(msgs):
+        return jsonify({"error": "not found"}), 404
+    save_button_messages(new_msgs)
     return jsonify({"ok": True})
 
 
