@@ -559,18 +559,150 @@ def _contact_refresh_loop():
 threading.Thread(target=_contact_refresh_loop, daemon=True).start()
 
 
+# ── scheduled group sending (monthly WhatsApp button messages) ───────────────
+
+def send_whatsapp_message(to_phone: str, text: str) -> dict:
+    """Send a WhatsApp message via Twilio. If Twilio credentials aren't configured
+    yet (e.g. while awaiting Meta business verification), logs a dry-run instead
+    of failing — so the scheduling logic can be tested end-to-end in advance."""
+    cfg = load_config()
+    sid         = cfg.get("twilio_account_sid", "")
+    token       = cfg.get("twilio_auth_token", "")
+    from_number = cfg.get("twilio_whatsapp_from", "")
+    if not (sid and token and from_number):
+        log.info("Twilio not configured — dry-run send to %s: %s", to_phone, text[:120])
+        return {"ok": True, "dry_run": True}
+    try:
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+        resp = http_requests.post(url, auth=(sid, token), data={
+            "From": f"whatsapp:{from_number}",
+            "To":   f"whatsapp:{to_phone}",
+            "Body": text,
+        }, timeout=15)
+        resp.raise_for_status()
+        return {"ok": True, "dry_run": False}
+    except Exception as e:
+        log.error("Failed to send WhatsApp message to %s: %s", to_phone, e)
+        return {"ok": False, "error": str(e)}
+
+
+def run_scheduled_group_sends(force: bool = False):
+    """Check every group with a scheduled button-message and send it once per month
+    on the configured day. `force=True` ignores the day-of-month / already-sent checks
+    (used by the manual test trigger)."""
+    today      = datetime.utcnow()
+    month_key  = today.strftime("%Y-%m")
+    groups     = load_groups()
+    msgs_by_id = {m["id"]: m for m in load_button_messages()}
+    contacts   = db_get("contacts", {})
+    changed    = False
+
+    for g in groups:
+        if not g.get("button_message_id") or not g.get("send_day"):
+            continue
+        if not force:
+            if g.get("last_sent_month") == month_key:
+                continue
+            if today.day != g["send_day"]:
+                continue
+        msg = msgs_by_id.get(g["button_message_id"])
+        if not msg:
+            continue
+        for phone in g.get("members", []):
+            plain_phone = phone.replace("@c.us", "")
+            name = contacts.get(phone, "")
+            text = (msg.get("text", "") or "").replace("{{שם}}", name or "")
+            result = send_whatsapp_message(plain_phone, text)
+            append_log({
+                "time": datetime.utcnow().isoformat(), "channel": "whatsapp_cloud",
+                "group_name": g.get("name", ""), "message_name": msg.get("name", ""),
+                "to": plain_phone, "status": "sent" if result.get("ok") else "error",
+                "dry_run": result.get("dry_run", False), "error": result.get("error", "")
+            })
+        if not force:
+            g["last_sent_month"] = month_key
+            changed = True
+
+    if changed:
+        save_groups(groups)
+
+
+def _scheduled_send_loop():
+    while True:
+        _time.sleep(6 * 60 * 60)
+        try:
+            run_scheduled_group_sends()
+        except Exception as e:
+            log.error("Scheduled group send error: %s", e)
+
+threading.Thread(target=_scheduled_send_loop, daemon=True).start()
+
+
 # ── webhook ───────────────────────────────────────────────────────────────────
+
+def find_button_by_label(label: str):
+    """Search all button-message drafts for a button matching the given label.
+    Returns (message, button) or (None, None)."""
+    for m in load_button_messages():
+        for b in m.get("buttons", []):
+            if b.get("label") == label:
+                return m, b
+    return None, None
+
 
 @app.route("/twilio-webhook", methods=["POST"])
 def twilio_webhook():
-    """Test endpoint for the new Twilio WhatsApp Sandbox channel — logs incoming
-    messages and echoes them back so we can verify the round trip works."""
-    from_number = request.form.get("From", "")
-    body_text   = request.form.get("Body", "")
-    log.info("Twilio webhook received: From=%r Body=%r", from_number, body_text)
+    """Twilio WhatsApp channel webhook — handles plain text replies and
+    quick-reply button clicks, and triggers the configured email action."""
+    from_number    = request.form.get("From", "")
+    body_text      = request.form.get("Body", "")
+    button_text    = request.form.get("ButtonText", "")
+    button_payload = request.form.get("ButtonPayload", "")
+    timestamp      = datetime.utcnow().isoformat()
+    reply_label    = button_text or button_payload
 
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+    log.info("Twilio webhook: From=%r Body=%r ButtonText=%r ButtonPayload=%r",
+             from_number, body_text, button_text, button_payload)
+
+    if not reply_label:
+        twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response><Message>קיבלתי ✓ — כתבת: {body_text}</Message></Response>"""
+        return twiml, 200, {"Content-Type": "text/xml; charset=utf-8"}
+
+    msg, button = find_button_by_label(reply_label)
+    append_log({
+        "time": timestamp, "channel": "whatsapp_cloud", "sender": from_number,
+        "button_clicked": reply_label, "message_name": msg.get("name", "") if msg else "",
+        "status": "button_reply" if msg else "button_reply_unmatched"
+    })
+
+    if button and button.get("email_to"):
+        to_email = button["email_to"]
+        employee_name = button.get("employee_name", "")
+        ai_result = generate_email_content(
+            from_number,
+            f'הלקוח השיב "{reply_label}" להודעה "{msg.get("name", "")}"',
+            employee_name
+        )
+        subject  = ai_result.get("subject", f"תגובת לקוח — {reply_label}")
+        body_txt = ai_result.get("body", f"הלקוח {from_number} בחר: {reply_label}")
+        try:
+            send_gmail(to=to_email, subject=subject, body_text=body_txt)
+            append_log({
+                "time": timestamp, "channel": "whatsapp_cloud", "sender": from_number,
+                "button_clicked": reply_label, "message_name": msg.get("name", ""),
+                "email_to": to_email, "status": "sent"
+            })
+        except Exception as e:
+            log.error("Failed to send email for button reply: %s", e)
+            append_log({
+                "time": timestamp, "channel": "whatsapp_cloud", "sender": from_number,
+                "button_clicked": reply_label, "message_name": msg.get("name", ""),
+                "email_to": to_email, "status": "error", "error": str(e)
+            })
+
+    twiml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response><Message>תודה רבה על תגובתך! 🙏</Message></Response>"""
     return twiml, 200, {"Content-Type": "text/xml; charset=utf-8"}
 
 
@@ -973,12 +1105,27 @@ def get_button_messages():
     return jsonify(load_button_messages())
 
 
+def _parse_buttons(raw):
+    """Normalize incoming button definitions into {label, email_to, employee_name} dicts."""
+    buttons = []
+    for b in (raw or [])[:3]:
+        label = (b.get("label") or "").strip()
+        if not label:
+            continue
+        buttons.append({
+            "label": label,
+            "email_to": (b.get("email_to") or "").strip(),
+            "employee_name": (b.get("employee_name") or "").strip(),
+        })
+    return buttons
+
+
 @app.route("/api/button-messages", methods=["POST"])
 def create_button_message():
     body = request.get_json() or {}
     name = (body.get("name") or "").strip()
     text = (body.get("text") or "").strip()
-    buttons = [b.strip() for b in (body.get("buttons") or []) if (b or "").strip()][:3]
+    buttons = _parse_buttons(body.get("buttons"))
     if not name or not text or not buttons:
         return jsonify({"error": "name, text and at least one button are required"}), 400
     msg = {
@@ -1005,7 +1152,7 @@ def update_button_message(mid):
             if "text" in body:
                 m["text"] = (body["text"] or "").strip()
             if "buttons" in body:
-                m["buttons"] = [b.strip() for b in (body["buttons"] or []) if (b or "").strip()][:3]
+                m["buttons"] = _parse_buttons(body["buttons"])
             m["updated_at"] = datetime.utcnow().isoformat()
             msgs[i] = m
             save_button_messages(msgs)
@@ -1021,6 +1168,17 @@ def delete_button_message(mid):
         return jsonify({"error": "not found"}), 404
     save_button_messages(new_msgs)
     return jsonify({"ok": True})
+
+
+@app.route("/api/groups/test-send", methods=["POST"])
+def groups_test_send():
+    """Manually trigger the scheduled-send check, ignoring the day-of-month and
+    once-per-month guards — useful for testing the flow without waiting."""
+    try:
+        run_scheduled_group_sends(force=True)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/green/test", methods=["POST"])
