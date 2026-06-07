@@ -152,6 +152,15 @@
   .badge-inactive { background: #fce4ec; color: #c62828; border-radius: 20px; padding: 3px 12px; font-size: .78rem; font-weight: 700; cursor: pointer; }
 
   /* ── task table ── */
+  .log-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  .log-table th.sortable:hover { color: var(--purple); }
+  .log-table th .sort-arrow { font-size: .7rem; margin-right: 4px; opacity: .5; }
+  .log-table th .sort-arrow.active { opacity: 1; color: var(--purple); }
+  .log-table th select {
+    margin-top: 4px; font-size: .76rem; font-weight: 600; padding: 3px 6px;
+    border-radius: 7px; border: 1.5px solid var(--purple-light); color: var(--purple-dark);
+    background: var(--white); cursor: pointer;
+  }
   tr.done td { opacity: .55; }
   tr.done td:nth-child(5) { text-decoration: line-through; }
   .task-check {
@@ -292,33 +301,7 @@
         <h2>משימות שנשלחו לעובדים</h2>
         <button class="btn btn-secondary" onclick="loadTasks()">🔄 רענן</button>
       </div>
-      <div class="form-row" style="margin-bottom:16px">
-        <div class="field" style="margin-bottom:0">
-          <label>סינון לפי עובד/ת</label>
-          <select id="task-filter-employee" onchange="renderTasks()">
-            <option value="">הכל</option>
-          </select>
-        </div>
-        <div class="field" style="margin-bottom:0">
-          <label>סינון לפי סטטוס</label>
-          <select id="task-filter-status" onchange="renderTasks()">
-            <option value="">הכל</option>
-            <option value="pending">ממתינות</option>
-            <option value="done">בוצעו</option>
-          </select>
-        </div>
-      </div>
-      <div class="field" style="margin-bottom:0">
-        <label>מיון</label>
-        <select id="task-sort" onchange="renderTasks()">
-          <option value="time-desc">תאריך — מהחדש לישן</option>
-          <option value="time-asc">תאריך — מהישן לחדש</option>
-          <option value="employee">לפי שם עובד/ת</option>
-          <option value="client">לפי שם לקוח</option>
-          <option value="status">לפי סטטוס</option>
-        </select>
-      </div>
-      <div id="tasks-list" style="margin-top:18px">
+      <div id="tasks-list" style="margin-top:4px">
         <div class="empty"><div class="empty-icon">✅</div>טוען...</div>
       </div>
     </div>
@@ -586,44 +569,84 @@ function updatePreview() {
 
 // ── tasks ──────────────────────────────────────────────────────────────────────
 let tasksCache = [];
+let taskSortKey = 'time', taskSortDir = 'desc';
+let taskFilterEmployee = '', taskFilterStatus = '';
 
 async function loadTasks() {
   tasksCache = await (await fetch('/api/tasks')).json();
-  const sel = document.getElementById('task-filter-employee');
-  const current = sel.value;
-  const employees = [...new Set(tasksCache.map(t => t.employee_name).filter(Boolean))].sort();
-  sel.innerHTML = '<option value="">הכל</option>' + employees.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join('');
-  sel.value = current;
   renderTasks();
+}
+
+function setTaskSort(key) {
+  if (taskSortKey === key) {
+    taskSortDir = (taskSortDir === 'asc') ? 'desc' : 'asc';
+  } else {
+    taskSortKey = key;
+    taskSortDir = (key === 'time') ? 'desc' : 'asc';
+  }
+  renderTasks();
+}
+
+function setTaskFilter(kind, value) {
+  if (kind === 'employee') taskFilterEmployee = value;
+  if (kind === 'status')   taskFilterStatus = value;
+  renderTasks();
+}
+
+function sortArrow(key) {
+  const active = taskSortKey === key;
+  const arrow = active ? (taskSortDir === 'asc' ? '▲' : '▼') : '▲▼';
+  return `<span class="sort-arrow ${active ? 'active' : ''}">${arrow}</span>`;
 }
 
 function renderTasks() {
   const el = document.getElementById('tasks-list');
-  const empFilter = document.getElementById('task-filter-employee').value;
-  const statusFilter = document.getElementById('task-filter-status').value;
-  const sort = document.getElementById('task-sort').value;
 
   let tasks = tasksCache.slice();
-  if (empFilter)    tasks = tasks.filter(t => t.employee_name === empFilter);
-  if (statusFilter) tasks = tasks.filter(t => (t.status || 'pending') === statusFilter);
+  if (taskFilterEmployee) tasks = tasks.filter(t => t.employee_name === taskFilterEmployee);
+  if (taskFilterStatus)   tasks = tasks.filter(t => (t.status || 'pending') === taskFilterStatus);
 
+  const dir = taskSortDir === 'asc' ? 1 : -1;
   tasks.sort((a, b) => {
-    if (sort === 'time-asc')  return new Date(a.time) - new Date(b.time);
-    if (sort === 'employee')  return (a.employee_name||'').localeCompare(b.employee_name||'', 'he');
-    if (sort === 'client')    return (a.sender_name||'').localeCompare(b.sender_name||'', 'he');
-    if (sort === 'status')    return (a.status||'pending').localeCompare(b.status||'pending');
-    return new Date(b.time) - new Date(a.time);
+    if (taskSortKey === 'time')     return dir * (new Date(a.time) - new Date(b.time));
+    if (taskSortKey === 'employee') return dir * (a.employee_name||'').localeCompare(b.employee_name||'', 'he');
+    if (taskSortKey === 'client')   return dir * (a.sender_name||'').localeCompare(b.sender_name||'', 'he');
+    if (taskSortKey === 'status')   return dir * (a.status||'pending').localeCompare(b.status||'pending');
+    return 0;
   });
 
+  const employees = [...new Set(tasksCache.map(t => t.employee_name).filter(Boolean))].sort((a,b) => a.localeCompare(b,'he'));
+  const empOptions = '<option value="">הכל</option>' + employees.map(e =>
+    `<option value="${esc(e)}" ${taskFilterEmployee===e?'selected':''}>${esc(e)}</option>`).join('');
+  const statusOptions = `
+    <option value="" ${taskFilterStatus===''?'selected':''}>הכל</option>
+    <option value="pending" ${taskFilterStatus==='pending'?'selected':''}>ממתינות</option>
+    <option value="done" ${taskFilterStatus==='done'?'selected':''}>בוצעו</option>`;
+
+  const header = `<tr>
+      <th></th>
+      <th class="sortable" onclick="setTaskSort('time')">זמן ${sortArrow('time')}</th>
+      <th class="sortable" onclick="setTaskSort('client')">לקוח ${sortArrow('client')}</th>
+      <th class="sortable" onclick="setTaskSort('employee')">
+        עובד/ת ${sortArrow('employee')}<br>
+        <select onclick="event.stopPropagation()" onchange="setTaskFilter('employee', this.value)">${empOptions}</select>
+      </th>
+      <th>נושא המשימה</th>
+      <th>כלל</th>
+      <th class="sortable" onclick="setTaskSort('status')">
+        סטטוס ${sortArrow('status')}<br>
+        <select onclick="event.stopPropagation()" onchange="setTaskFilter('status', this.value)">${statusOptions}</select>
+      </th>
+    </tr>`;
+
   if (!tasks.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div>אין משימות להצגה.</div>';
+    el.innerHTML = `<table class="log-table"><thead>${header}</thead></table>
+      <div class="empty"><div class="empty-icon">✅</div>אין משימות להצגה.</div>`;
     return;
   }
 
   el.innerHTML = `<table class="log-table">
-    <thead><tr>
-      <th></th><th>זמן</th><th>לקוח</th><th>עובד/ת</th><th>נושא המשימה</th><th>כלל</th><th>סטטוס</th>
-    </tr></thead>
+    <thead>${header}</thead>
     <tbody>${tasks.map(t => {
       const done = t.status === 'done';
       return `
