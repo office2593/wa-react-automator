@@ -570,7 +570,8 @@ function updatePreview() {
 // ── tasks ──────────────────────────────────────────────────────────────────────
 let tasksCache = [];
 let taskSortKey = 'time', taskSortDir = 'desc';
-let taskFilterEmployee = '', taskFilterStatus = '';
+let taskFilterEmployee = '', taskFilterStatus = '', taskFilterClient = '', taskFilterMonth = '';
+const HE_MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
 async function loadTasks() {
   tasksCache = await (await fetch('/api/tasks')).json();
@@ -590,7 +591,20 @@ function setTaskSort(key) {
 function setTaskFilter(kind, value) {
   if (kind === 'employee') taskFilterEmployee = value;
   if (kind === 'status')   taskFilterStatus = value;
+  if (kind === 'client')   taskFilterClient = value;
+  if (kind === 'month')    taskFilterMonth = value;
   renderTasks();
+}
+
+function taskMonthKey(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+
+function taskMonthLabel(key) {
+  const [y, m] = key.split('-');
+  return HE_MONTHS[parseInt(m,10)-1] + ' ' + y;
 }
 
 function sortArrow(key) {
@@ -605,6 +619,8 @@ function renderTasks() {
   let tasks = tasksCache.slice();
   if (taskFilterEmployee) tasks = tasks.filter(t => t.employee_name === taskFilterEmployee);
   if (taskFilterStatus)   tasks = tasks.filter(t => (t.status || 'pending') === taskFilterStatus);
+  if (taskFilterClient)   tasks = tasks.filter(t => t.sender_name === taskFilterClient);
+  if (taskFilterMonth)    tasks = tasks.filter(t => taskMonthKey(t.time) === taskFilterMonth);
 
   const dir = taskSortDir === 'asc' ? 1 : -1;
   tasks.sort((a, b) => {
@@ -623,10 +639,24 @@ function renderTasks() {
     <option value="pending" ${taskFilterStatus==='pending'?'selected':''}>ממתינות</option>
     <option value="done" ${taskFilterStatus==='done'?'selected':''}>בוצעו</option>`;
 
+  const clients = [...new Set(tasksCache.map(t => t.sender_name).filter(Boolean))].sort((a,b) => a.localeCompare(b,'he'));
+  const clientOptions = '<option value="">הכל</option>' + clients.map(c =>
+    `<option value="${esc(c)}" ${taskFilterClient===c?'selected':''}>${esc(c)}</option>`).join('');
+
+  const months = [...new Set(tasksCache.map(t => taskMonthKey(t.time)).filter(Boolean))].sort().reverse();
+  const monthOptions = '<option value="">הכל</option>' + months.map(m =>
+    `<option value="${m}" ${taskFilterMonth===m?'selected':''}>${esc(taskMonthLabel(m))}</option>`).join('');
+
   const header = `<tr>
       <th></th>
-      <th class="sortable" onclick="setTaskSort('time')">זמן ${sortArrow('time')}</th>
-      <th class="sortable" onclick="setTaskSort('client')">לקוח ${sortArrow('client')}</th>
+      <th class="sortable" onclick="setTaskSort('time')">
+        זמן ${sortArrow('time')}<br>
+        <select onclick="event.stopPropagation()" onchange="setTaskFilter('month', this.value)">${monthOptions}</select>
+      </th>
+      <th class="sortable" onclick="setTaskSort('client')">
+        לקוח ${sortArrow('client')}<br>
+        <select onclick="event.stopPropagation()" onchange="setTaskFilter('client', this.value)">${clientOptions}</select>
+      </th>
       <th class="sortable" onclick="setTaskSort('employee')">
         עובד/ת ${sortArrow('employee')}<br>
         <select onclick="event.stopPropagation()" onchange="setTaskFilter('employee', this.value)">${empOptions}</select>
