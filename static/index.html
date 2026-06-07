@@ -151,21 +151,16 @@
   .badge-active { background: #e8f5e9; color: #2e7d32; border-radius: 20px; padding: 3px 12px; font-size: .78rem; font-weight: 700; cursor: pointer; }
   .badge-inactive { background: #fce4ec; color: #c62828; border-radius: 20px; padding: 3px 12px; font-size: .78rem; font-weight: 700; cursor: pointer; }
 
-  /* ── task cards ── */
-  .task-card { align-items: flex-start; }
-  .task-card.done { opacity: .6; }
-  .task-card.done .task-info strong { text-decoration: line-through; }
+  /* ── task table ── */
+  tr.done td { opacity: .55; }
+  tr.done td:nth-child(5) { text-decoration: line-through; }
   .task-check {
-    width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
+    width: 24px; height: 24px; border-radius: 7px; cursor: pointer;
     border: 2px solid var(--purple-light); background: var(--white);
     display: flex; align-items: center; justify-content: center;
-    font-size: 1rem; flex-shrink: 0; margin-top: 4px; transition: all .15s;
+    font-size: .9rem; flex-shrink: 0; transition: all .15s;
   }
   .task-check.checked { background: var(--green); border-color: var(--green); color: #fff; }
-  .task-info small { display: block; margin-top: 2px; }
-  .task-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; font-size: .78rem; color: var(--muted); }
-  .task-meta span { background: var(--grad-light); border-radius: 20px; padding: 2px 10px; }
-  .task-body { margin-top: 8px; font-size: .85rem; color: var(--text); line-height: 1.6; white-space: pre-wrap; }
 
   /* ── emoji picker ── */
   .emoji-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -319,10 +314,11 @@
           <option value="time-desc">תאריך — מהחדש לישן</option>
           <option value="time-asc">תאריך — מהישן לחדש</option>
           <option value="employee">לפי שם עובד/ת</option>
+          <option value="client">לפי שם לקוח</option>
           <option value="status">לפי סטטוס</option>
         </select>
       </div>
-      <div id="tasks-list" class="rules-grid" style="margin-top:18px">
+      <div id="tasks-list" style="margin-top:18px">
         <div class="empty"><div class="empty-icon">✅</div>טוען...</div>
       </div>
     </div>
@@ -614,6 +610,7 @@ function renderTasks() {
   tasks.sort((a, b) => {
     if (sort === 'time-asc')  return new Date(a.time) - new Date(b.time);
     if (sort === 'employee')  return (a.employee_name||'').localeCompare(b.employee_name||'', 'he');
+    if (sort === 'client')    return (a.sender_name||'').localeCompare(b.sender_name||'', 'he');
     if (sort === 'status')    return (a.status||'pending').localeCompare(b.status||'pending');
     return new Date(b.time) - new Date(a.time);
   });
@@ -623,23 +620,25 @@ function renderTasks() {
     return;
   }
 
-  el.innerHTML = tasks.map(t => {
-    const done = t.status === 'done';
-    return `
-    <div class="rule-card task-card ${done ? 'done' : ''}">
-      <div class="task-check ${done ? 'checked' : ''}" onclick="toggleTask('${t.id}', ${!done})" title="${done ? 'סמן כלא בוצע' : 'סמן כבוצע'}">${done ? '✓' : ''}</div>
-      <div class="rule-info task-info">
-        <strong>${esc(t.subject || t.rule_name || 'משימה')}</strong>
-        <small>אל: ${esc(t.employee_name || '')} · ${esc(t.email_to || '')}</small>
-        <div class="task-meta">
-          <span>${esc(t.emoji || '')} ${esc(t.rule_name || '')}</span>
-          <span>🕐 ${fmtTime(t.time)}</span>
-          ${done && t.completed_at ? `<span>✅ בוצע ב-${fmtTime(t.completed_at)}</span>` : ''}
-        </div>
-        ${t.body ? `<div class="task-body">${esc(t.body)}</div>` : ''}
-      </div>
-    </div>`;
-  }).join('');
+  el.innerHTML = `<table class="log-table">
+    <thead><tr>
+      <th></th><th>זמן</th><th>לקוח</th><th>עובד/ת</th><th>נושא המשימה</th><th>כלל</th><th>סטטוס</th>
+    </tr></thead>
+    <tbody>${tasks.map(t => {
+      const done = t.status === 'done';
+      return `
+      <tr class="${done ? 'done' : ''}">
+        <td><div class="task-check ${done ? 'checked' : ''}" onclick="toggleTask('${t.id}', ${!done})" title="${done ? 'סמן כלא בוצע' : 'סמן כבוצע'}">${done ? '✓' : ''}</div></td>
+        <td style="white-space:nowrap;font-size:.82rem">${fmtTime(t.time)}</td>
+        <td>${esc(t.sender_name||'')}</td>
+        <td>${esc(t.employee_name||'')}</td>
+        <td>${esc(t.subject || t.rule_name || '')}</td>
+        <td style="font-size:1.2rem;text-align:center">${esc(t.emoji||'')}</td>
+        <td class="${done ? 'status-sent' : 'status-no_rule'}">${done ? '✅ בוצעה' + (t.completed_at ? ' · ' + fmtTime(t.completed_at) : '') : '⏳ ממתינה'}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table>`;
 }
 
 async function toggleTask(id, makeDone) {
