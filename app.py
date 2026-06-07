@@ -286,14 +286,20 @@ def build_email_html(body_text: str, complete_url: str = "") -> str:
         button_row = f"""
   <!-- COMPLETE TASK BUTTON -->
   <tr>
-    <td align="center" style="padding:0 5% 28px;background:#ffffff">
+    <td align="center" style="padding:0 5% 28px;background:#ffffff;text-align:center">
       <!--[if mso]>
       <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="{complete_url}" style="height:46px;v-text-anchor:middle;width:320px" arcsize="22%" fillcolor="#7B2D8B" stroke="f">
       <center style="color:#ffffff;font-family:David,Arial,sans-serif;font-size:15px;font-weight:bold">יש ללחוץ כאן לאישור ביצוע המשימה</center>
       </v:roundrect>
       <![endif]-->
       <!--[if !mso]><!-->
-      <a href="{complete_url}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#7B2D8B 0%,#4a0a6b 100%);color:#ffffff;font-family:David,Arial,sans-serif;font-size:15px;font-weight:bold;text-decoration:none;padding:14px 32px;border-radius:10px;text-align:center;direction:rtl">יש ללחוץ כאן לאישור ביצוע המשימה</a>
+      <table cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto">
+        <tr>
+          <td align="center" bgcolor="#7B2D8B" style="background:linear-gradient(135deg,#7B2D8B 0%,#4a0a6b 100%);border-radius:10px">
+            <a href="{complete_url}" target="_blank" style="display:inline-block;color:#ffffff;font-family:David,Arial,sans-serif;font-size:15px;font-weight:bold;text-decoration:none;padding:14px 32px;border-radius:10px;text-align:center">יש ללחוץ כאן לאישור ביצוע המשימה</a>
+          </td>
+        </tr>
+      </table>
       <!--<![endif]-->
     </td>
   </tr>
