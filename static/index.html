@@ -314,7 +314,10 @@
     <div class="card">
       <div class="card-header">
         <h2>קבוצות לקוחות</h2>
-        <button class="btn btn-primary" onclick="openNewGroup()">+ קבוצה חדשה</button>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-secondary" onclick="testGroupSends()">🧪 בדיקת שליחה</button>
+          <button class="btn btn-primary" onclick="openNewGroup()">+ קבוצה חדשה</button>
+        </div>
       </div>
       <div id="groups-list" style="margin-top:4px">
         <div class="empty"><div class="empty-icon">👥</div>טוען...</div>
@@ -521,21 +524,10 @@
           <textarea id="bm-text" rows="4" placeholder="לדוגמה: שלום {{שם}}, האם להפיק לך תלוש שכר החודש?" oninput="updateButtonMsgPreview()"></textarea>
           <div class="hint">ניתן להשתמש ב-<code>{{שם}}</code> שיוחלף אוטומטית בשם הלקוח</div>
         </div>
-        <div class="field">
-          <label>כפתור 1</label>
-          <input id="bm-btn-0" placeholder="לדוגמה: ✅ כן, להפיק" oninput="updateButtonMsgPreview()" />
-        </div>
-        <div class="field">
-          <label>כפתור 2 (אופציונלי)</label>
-          <input id="bm-btn-1" placeholder="לדוגמה: ❌ לא הפעם" oninput="updateButtonMsgPreview()" />
-        </div>
-        <div class="field">
-          <label>כפתור 3 (אופציונלי)</label>
-          <input id="bm-btn-2" placeholder="" oninput="updateButtonMsgPreview()" />
-        </div>
+        <div id="bm-buttons-fields"></div>
         <div style="background:var(--grad-light);border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;font-size:.85rem;color:var(--purple-dark);line-height:1.7;display:flex;gap:10px;align-items:flex-start">
           <span style="font-size:1.2rem;flex-shrink:0">ℹ️</span>
-          <span>הודעות עם כפתורים טעונות <strong>אישור מראש מ-Meta</strong> לפני שניתן לשלוח אותן ללקוחות. ניצור אותן כאן כטיוטה, ונגיש לאישור בנפרד.</span>
+          <span>הודעות עם כפתורים טעונות <strong>אישור מראש מ-Meta</strong> לפני שניתן לשלוח אותן ללקוחות. ניצור אותן כאן כטיוטה, ונגיש לאישור בנפרד.<br>אם תמלא "שלח מייל אל" עבור כפתור — בלחיצת הלקוח על אותו כפתור יישלח אוטומטית מייל לכתובת זו (באותה לוגיקה שמפעילה הכללים הקיימים). אם תשאיר ריק — התגובה רק תתועד בלוג.</span>
         </div>
       </div>
 
@@ -1112,6 +1104,14 @@ async function deleteGroup(id) {
   loadGroups();
 }
 
+async function testGroupSends() {
+  if (!confirm('פעולה זו תפעיל מיידית שליחה לכל הקבוצות עם הודעה ותזמון משויכים (ללא המתנה ליום הקבוע). אם טוויליו עדיין לא מוגדר — הפעולה רק תתעד "סימולציית שליחה" בהיסטוריה. להמשיך?')) return;
+  const res = await fetch('/api/groups/test-send', { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) showToast('בדיקת השליחה בוצעה — בדוק את ההיסטוריה ✓');
+  else showToast('שגיאה בבדיקת השליחה: ' + (data.error||''), true);
+}
+
 // ── button messages ───────────────────────────────────────────────────────────
 let buttonMsgsCache = [];
 let buttonMsgEditingId = null;
@@ -1132,7 +1132,7 @@ function renderButtonMsgs() {
       <div class="rule-emoji">🔘</div>
       <div class="rule-info">
         <strong>${esc(m.name || 'ללא שם')}</strong>
-        <small>${(m.buttons||[]).map(b=>esc(b)).join(' · ')}</small>
+        <small>${(m.buttons||[]).map(b => esc(b.label) + (b.email_to ? ' → 📧 '+esc(b.email_to) : '')).join(' · ')}</small>
       </div>
       <div class="rule-actions">
         <button class="btn btn-ghost" style="padding:7px 12px" onclick="openEditButtonMsg('${m.id}')">✏️</button>
@@ -1141,17 +1141,50 @@ function renderButtonMsgs() {
     </div>`).join('');
 }
 
+function buttonFieldsHtml(i, b) {
+  b = b || {};
+  return `
+    <div style="border:1.5px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
+      <div class="field" style="margin-bottom:10px">
+        <label>כפתור ${i+1}${i > 0 ? ' (אופציונלי)' : ''}</label>
+        <input id="bm-btn-label-${i}" placeholder="${i===0 ? 'לדוגמה: ✅ כן, להפיק' : (i===1 ? 'לדוגמה: ❌ לא הפעם' : '')}" value="${esc(b.label||'')}" oninput="updateButtonMsgPreview()" />
+      </div>
+      <div class="field" style="margin-bottom:10px">
+        <label>בלחיצת הלקוח על כפתור זה — שלח מייל אל</label>
+        <input id="bm-btn-email-${i}" type="email" placeholder="someone@example.com (אופציונלי)" value="${esc(b.email_to||'')}" />
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>שם העובד/ת (לניסוח אישי של המייל ע"י AI)</label>
+        <input id="bm-btn-employee-${i}" placeholder="לדוגמה: מיכל" value="${esc(b.employee_name||'')}" />
+      </div>
+    </div>`;
+}
+
+function renderButtonFieldsEditor(buttons) {
+  buttons = buttons || [];
+  document.getElementById('bm-buttons-fields').innerHTML =
+    [0,1,2].map(i => buttonFieldsHtml(i, buttons[i])).join('');
+}
+
+function readButtonFields() {
+  return [0,1,2].map(i => ({
+    label:         (document.getElementById('bm-btn-label-'+i).value || '').trim(),
+    email_to:      (document.getElementById('bm-btn-email-'+i).value || '').trim(),
+    employee_name: (document.getElementById('bm-btn-employee-'+i).value || '').trim(),
+  })).filter(b => b.label);
+}
+
 function updateButtonMsgPreview() {
   const text = document.getElementById('bm-text').value.trim() || 'שלום [שם], ...';
   document.getElementById('bm-preview-text').textContent = text;
-  const buttons = [0,1,2].map(i => document.getElementById('bm-btn-'+i).value.trim()).filter(Boolean);
+  const buttons = readButtonFields();
   const btnsEl = document.getElementById('bm-preview-buttons');
   if (!buttons.length) {
     btnsEl.innerHTML = '';
     return;
   }
   btnsEl.innerHTML = buttons.map(b => `
-    <div style="border-top:1px solid #e5e7eb;text-align:center;padding:9px 0;color:#00897B;font-weight:600;font-size:.9rem">${esc(b)}</div>
+    <div style="border-top:1px solid #e5e7eb;text-align:center;padding:9px 0;color:#00897B;font-weight:600;font-size:.9rem">${esc(b.label)}</div>
   `).join('');
 }
 
@@ -1160,7 +1193,7 @@ function openNewButtonMsg() {
   document.getElementById('buttonmsg-modal-title').textContent = 'הודעה חדשה עם כפתורים';
   document.getElementById('bm-name').value = '';
   document.getElementById('bm-text').value = '';
-  [0,1,2].forEach(i => document.getElementById('bm-btn-'+i).value = '');
+  renderButtonFieldsEditor([]);
   updateButtonMsgPreview();
   document.getElementById('buttonmsg-modal').classList.add('open');
 }
@@ -1172,8 +1205,7 @@ function openEditButtonMsg(id) {
   document.getElementById('buttonmsg-modal-title').textContent = 'עריכת הודעה';
   document.getElementById('bm-name').value = m.name || '';
   document.getElementById('bm-text').value = m.text || '';
-  const buttons = m.buttons || [];
-  [0,1,2].forEach(i => document.getElementById('bm-btn-'+i).value = buttons[i] || '');
+  renderButtonFieldsEditor(m.buttons || []);
   updateButtonMsgPreview();
   document.getElementById('buttonmsg-modal').classList.add('open');
 }
@@ -1185,8 +1217,8 @@ function closeButtonMsgModal() {
 async function saveButtonMsg() {
   const name = document.getElementById('bm-name').value.trim();
   const text = document.getElementById('bm-text').value.trim();
-  const buttons = [0,1,2].map(i => document.getElementById('bm-btn-'+i).value.trim()).filter(Boolean);
-  if (!name || !text || !buttons.length) { showToast('יש למלא שם, טקסט הודעה ולפחות כפתור אחד', true); return; }
+  const buttons = readButtonFields();
+  if (!name || !text || !buttons.length) { showToast('יש למלא שם, טקסט הודעה ולפחות כפתור אחד עם תווית', true); return; }
   const payload = { name, text, buttons };
   const url = buttonMsgEditingId ? `/api/button-messages/${buttonMsgEditingId}` : '/api/button-messages';
   const method = buttonMsgEditingId ? 'PUT' : 'POST';
