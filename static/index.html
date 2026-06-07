@@ -624,6 +624,10 @@ function renderTasks() {
 
   const dir = taskSortDir === 'asc' ? 1 : -1;
   tasks.sort((a, b) => {
+    const aDone = a.status === 'done', bDone = b.status === 'done';
+    if (aDone !== bDone) return aDone ? 1 : -1;
+    if (aDone && bDone) return new Date(b.completed_at||0) - new Date(a.completed_at||0);
+
     if (taskSortKey === 'time')     return dir * (new Date(a.time) - new Date(b.time));
     if (taskSortKey === 'employee') return dir * (a.employee_name||'').localeCompare(b.employee_name||'', 'he');
     if (taskSortKey === 'client')   return dir * (a.sender_name||'').localeCompare(b.sender_name||'', 'he');
@@ -648,7 +652,9 @@ function renderTasks() {
     `<option value="${m}" ${taskFilterMonth===m?'selected':''}>${esc(taskMonthLabel(m))}</option>`).join('');
 
   const header = `<tr>
-      <th></th>
+      <th>
+        <select onclick="event.stopPropagation()" onchange="setTaskFilter('status', this.value)" title="סינון לפי ביצוע">${statusOptions}</select>
+      </th>
       <th class="sortable" onclick="setTaskSort('time')">
         זמן ${sortArrow('time')}<br>
         <select onclick="event.stopPropagation()" onchange="setTaskFilter('month', this.value)">${monthOptions}</select>
