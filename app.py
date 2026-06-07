@@ -6,6 +6,7 @@ Data stored in PostgreSQL (Railway) or local JSON files (development).
 import json
 import os
 import re
+import secrets
 import base64
 import logging
 from datetime import datetime
@@ -277,9 +278,26 @@ def get_gmail_service():
     return build("gmail", "v1", credentials=creds)
 
 
-def build_email_html(body_text: str) -> str:
+def build_email_html(body_text: str, complete_url: str = "") -> str:
     """Build Outlook-compatible HTML email with David font and purple gradient design."""
     msg = (body_text or "").replace("\n", "<br>")
+    button_row = ""
+    if complete_url:
+        button_row = f"""
+  <!-- COMPLETE TASK BUTTON -->
+  <tr>
+    <td align="center" style="padding:0 5% 28px;background:#ffffff">
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="{complete_url}" style="height:46px;v-text-anchor:middle;width:320px" arcsize="22%" fillcolor="#7B2D8B" stroke="f">
+      <center style="color:#ffffff;font-family:David,Arial,sans-serif;font-size:15px;font-weight:bold">יש ללחוץ כאן לאישור ביצוע המשימה</center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-->
+      <a href="{complete_url}" target="_blank" style="display:inline-block;background:linear-gradient(135deg,#7B2D8B 0%,#4a0a6b 100%);color:#ffffff;font-family:David,Arial,sans-serif;font-size:15px;font-weight:bold;text-decoration:none;padding:14px 32px;border-radius:10px;text-align:center;direction:rtl">יש ללחוץ כאן לאישור ביצוע המשימה</a>
+      <!--<![endif]-->
+    </td>
+  </tr>
+"""
     return f"""<!DOCTYPE html>
 <html dir="rtl" lang="he" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
@@ -339,7 +357,7 @@ def build_email_html(body_text: str) -> str:
       {msg}
     </td>
   </tr>
-
+{button_row}
   <!-- DIVIDER -->
   <tr>
     <td style="padding:0 32px;font-size:0;line-height:0;height:1px;background:#e0d0f0">&nbsp;</td>
@@ -372,15 +390,16 @@ def build_email_html(body_text: str) -> str:
 </html>"""
 
 
-def send_gmail(to: str, subject: str, body_text: str):
+def send_gmail(to: str, subject: str, body_text: str, complete_url: str = ""):
     service = get_gmail_service()
     msg = MIMEMultipart("alternative")
     msg["To"]      = to
     msg["Subject"] = subject
     msg["From"]    = "me"
 
-    msg.attach(MIMEText(body_text, "plain", "utf-8"))
-    msg.attach(MIMEText(build_email_html(body_text), "html", "utf-8"))
+    plain = body_text + (f"\n\nלאישור ביצוע המשימה: {complete_url}" if complete_url else "")
+    msg.attach(MIMEText(plain, "plain", "utf-8"))
+    msg.attach(MIMEText(build_email_html(body_text, complete_url), "html", "utf-8"))
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
@@ -589,21 +608,25 @@ def webhook():
         ai_result = generate_email_content(sender_name or sender, orig_text, employee_name)
         subject   = ai_result.get("subject", f"{sender_name or sender} — הודעה חדשה")
         body_txt  = ai_result.get("body", orig_text)
+        task_id    = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
+        complete_token = secrets.token_urlsafe(24)
+        complete_url   = f"{request.host_url.rstrip('/')}/task-done/{task_id}?token={complete_token}"
         try:
-            send_gmail(to=to_email, subject=subject, body_text=body_txt)
+            send_gmail(to=to_email, subject=subject, body_text=body_txt, complete_url=complete_url)
             append_log({
                 "time": timestamp, "emoji": reaction, "sender": sender,
                 "sender_name": sender_name, "chat": chat_id, "original_text": orig_text,
                 "rule_name": rule.get("name", ""), "email_to": to_email, "status": "sent"
             })
             append_task({
-                "id": datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+                "id": task_id,
                 "time": timestamp, "emoji": reaction,
                 "sender_name": sender_name or sender, "chat": chat_id,
                 "original_text": orig_text, "rule_name": rule.get("name", ""),
                 "employee_name": employee_name, "email_to": to_email,
                 "subject": subject, "body": body_txt,
-                "status": "pending", "completed_at": None
+                "status": "pending", "completed_at": None,
+                "complete_token": complete_token
             })
             log.info("Email sent to %s for reaction %s", to_email, reaction)
         except Exception as e:
@@ -678,6 +701,48 @@ def update_task(tid):
             save_tasks(tasks)
             return jsonify(t)
     return jsonify({"error": "not found"}), 404
+
+
+def _confirm_page(title: str, message: str) -> str:
+    return f"""<!DOCTYPE html>
+<html dir="rtl" lang="he"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title></head>
+<body style="margin:0;padding:0;background:#f4f0f8;font-family:David,Arial,sans-serif;direction:rtl">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="min-height:100vh">
+<tr><td align="center" valign="middle" style="padding:40px 16px">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:440px;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e0d0f0;box-shadow:0 4px 20px rgba(123,45,139,0.12)">
+<tr><td align="center" style="padding:0;background:linear-gradient(135deg,#4a0a6b 0%,#1a0030 100%)">
+<p style="margin:0;padding:26px 20px 22px;font-size:22px;font-weight:bold;color:#ffffff;text-align:center">אורן דולב — רואה חשבון</p>
+</td></tr>
+<tr><td style="padding:0;font-size:0;line-height:0"><div style="background:linear-gradient(90deg,#7B2D8B 0%,#c084d8 100%);height:5px"></div></td></tr>
+<tr><td align="center" style="padding:36px 28px;text-align:center">
+<p style="margin:0;font-size:18px;font-weight:bold;color:#4a0a6b">{title}</p>
+<p style="margin:14px 0 0;font-size:15px;color:#2d2d2d;line-height:1.7">{message}</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>"""
+
+
+@app.route("/task-done/<task_id>", methods=["GET"])
+def task_done(task_id):
+    token = request.args.get("token", "")
+    tasks = load_tasks()
+    for i, t in enumerate(tasks):
+        if t["id"] == task_id:
+            if not token or not secrets.compare_digest(token, t.get("complete_token", "")):
+                return _confirm_page("קישור לא תקין", "הקישור שגוי או שאינו תואם למשימה."), 403
+            if t.get("status") == "done":
+                return _confirm_page("המשימה כבר סומנה כבוצעה ✓",
+                                     "המשימה כבר סומנה כבוצעה בעבר. תודה רבה!")
+            t["status"] = "done"
+            t["completed_at"] = datetime.utcnow().isoformat()
+            tasks[i] = t
+            save_tasks(tasks)
+            return _confirm_page("המשימה סומנה כבוצעה ✓", "תודה! העדכון נשמר במערכת ואורן יראה אותו בפאנל הניהול.")
+    return _confirm_page("המשימה לא נמצאה", "ייתכן שהמשימה נמחקה מהמערכת."), 404
 
 
 @app.route("/api/config", methods=["GET"])
