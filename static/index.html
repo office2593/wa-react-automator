@@ -483,6 +483,17 @@
             <div class="empty"><div class="empty-icon">👥</div>טוען אנשי קשר...</div>
           </div>
         </div>
+        <div class="field">
+          <label>הודעה עם כפתורים שתישלח לקבוצה</label>
+          <select id="group-button-msg">
+            <option value="">— ללא —</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>יום בחודש לשליחה</label>
+          <input id="group-send-day" type="number" min="1" max="28" placeholder="לדוגמה: 1" />
+          <div class="hint">ההודעה תישלח אוטומטית בכל חודש ביום זה (בין 1 ל-28)</div>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -974,6 +985,7 @@ let groupSelectedMembers = new Set();
 
 async function loadGroups() {
   groupsCache = await (await fetch('/api/groups')).json();
+  if (!buttonMsgsCache.length) buttonMsgsCache = await (await fetch('/api/button-messages')).json();
   renderGroups();
 }
 
@@ -988,7 +1000,7 @@ function renderGroups() {
       <div class="rule-emoji">👥</div>
       <div class="rule-info">
         <strong>${esc(g.name || 'ללא שם')}</strong>
-        <small>${(g.members||[]).length} אנשי קשר · עודכן ${fmtTime(g.updated_at)}</small>
+        <small>${(g.members||[]).length} אנשי קשר${groupScheduleLabel(g)} · עודכן ${fmtTime(g.updated_at)}</small>
       </div>
       <div class="rule-actions">
         <button class="btn btn-ghost" style="padding:7px 12px" onclick="openEditGroup('${g.id}')">✏️</button>
@@ -1000,6 +1012,19 @@ function renderGroups() {
 async function ensureContactsLoaded() {
   if (contactsCache.length) return;
   contactsCache = await (await fetch('/api/contacts')).json();
+}
+
+function groupScheduleLabel(g) {
+  if (!g.button_message_id || !g.send_day) return '';
+  const m = buttonMsgsCache.find(x => x.id === g.button_message_id);
+  return ` · 🔘 ${esc(m ? m.name : 'הודעה')} · כל ${g.send_day} לחודש`;
+}
+
+async function populateGroupButtonMsgSelect(selectedId) {
+  if (!buttonMsgsCache.length) buttonMsgsCache = await (await fetch('/api/button-messages')).json();
+  const sel = document.getElementById('group-button-msg');
+  sel.innerHTML = '<option value="">— ללא —</option>' +
+    buttonMsgsCache.map(m => `<option value="${m.id}" ${m.id === selectedId ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
 }
 
 function renderGroupContacts() {
@@ -1031,8 +1056,10 @@ async function openNewGroup() {
   document.getElementById('group-modal-title').textContent = 'קבוצה חדשה';
   document.getElementById('group-name').value = '';
   document.getElementById('group-contact-search').value = '';
+  document.getElementById('group-send-day').value = '';
   await ensureContactsLoaded();
   renderGroupContacts();
+  await populateGroupButtonMsgSelect('');
   document.getElementById('group-modal').classList.add('open');
 }
 
@@ -1044,8 +1071,10 @@ async function openEditGroup(id) {
   document.getElementById('group-modal-title').textContent = 'עריכת קבוצה';
   document.getElementById('group-name').value = g.name || '';
   document.getElementById('group-contact-search').value = '';
+  document.getElementById('group-send-day').value = g.send_day || '';
   await ensureContactsLoaded();
   renderGroupContacts();
+  await populateGroupButtonMsgSelect(g.button_message_id || '');
   document.getElementById('group-modal').classList.add('open');
 }
 
@@ -1056,7 +1085,18 @@ function closeGroupModal() {
 async function saveGroup() {
   const name = document.getElementById('group-name').value.trim();
   if (!name) { showToast('יש להזין שם לקבוצה', true); return; }
-  const payload = { name, members: Array.from(groupSelectedMembers) };
+  const sendDayRaw = document.getElementById('group-send-day').value.trim();
+  let sendDay = sendDayRaw ? parseInt(sendDayRaw, 10) : null;
+  if (sendDay !== null && (isNaN(sendDay) || sendDay < 1 || sendDay > 28)) {
+    showToast('יום בחודש חייב להיות בין 1 ל-28', true);
+    return;
+  }
+  const payload = {
+    name,
+    members: Array.from(groupSelectedMembers),
+    button_message_id: document.getElementById('group-button-msg').value,
+    send_day: sendDay,
+  };
   const url = groupEditingId ? `/api/groups/${groupEditingId}` : '/api/groups';
   const method = groupEditingId ? 'PUT' : 'POST';
   const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
