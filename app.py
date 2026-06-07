@@ -55,6 +55,7 @@ if _client_secrets_env:
 
 RULES_FILE  = DATA_DIR / "rules.json"
 LOG_FILE    = DATA_DIR / "log.json"
+TASKS_FILE  = DATA_DIR / "tasks.json"
 CONFIG_FILE = DATA_DIR / "config.json"
 TOKEN_FILE  = DATA_DIR / "gmail_token.json"
 
@@ -179,6 +180,25 @@ def append_log(entry: dict):
         db_set("log", entries)
     else:
         save_json(LOG_FILE, entries)
+
+
+def load_tasks():
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        return db_get("tasks", [])
+    return load_json(TASKS_FILE, [])
+
+
+def save_tasks(data):
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("tasks", data)
+    else:
+        save_json(TASKS_FILE, data)
+
+
+def append_task(entry: dict):
+    tasks = load_tasks()
+    tasks.insert(0, entry)
+    save_tasks(tasks)
 
 
 def load_gmail_token():
@@ -576,6 +596,15 @@ def webhook():
                 "sender_name": sender_name, "chat": chat_id, "original_text": orig_text,
                 "rule_name": rule.get("name", ""), "email_to": to_email, "status": "sent"
             })
+            append_task({
+                "id": datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+                "time": timestamp, "emoji": reaction,
+                "sender_name": sender_name or sender, "chat": chat_id,
+                "original_text": orig_text, "rule_name": rule.get("name", ""),
+                "employee_name": employee_name, "email_to": to_email,
+                "subject": subject, "body": body_txt,
+                "status": "pending", "completed_at": None
+            })
             log.info("Email sent to %s for reaction %s", to_email, reaction)
         except Exception as e:
             errors.append(str(e))
@@ -629,6 +658,26 @@ def delete_rule(rid):
 @app.route("/api/log", methods=["GET"])
 def get_log():
     return jsonify(load_log())
+
+
+@app.route("/api/tasks", methods=["GET"])
+def get_tasks():
+    return jsonify(load_tasks())
+
+
+@app.route("/api/tasks/<tid>", methods=["PUT"])
+def update_task(tid):
+    tasks = load_tasks()
+    body = request.get_json() or {}
+    for i, t in enumerate(tasks):
+        if t["id"] == tid:
+            if "status" in body:
+                t["status"] = body["status"]
+                t["completed_at"] = datetime.utcnow().isoformat() if body["status"] == "done" else None
+            tasks[i] = t
+            save_tasks(tasks)
+            return jsonify(t)
+    return jsonify({"error": "not found"}), 404
 
 
 @app.route("/api/config", methods=["GET"])
