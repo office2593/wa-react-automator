@@ -151,6 +151,22 @@
   .badge-active { background: #e8f5e9; color: #2e7d32; border-radius: 20px; padding: 3px 12px; font-size: .78rem; font-weight: 700; cursor: pointer; }
   .badge-inactive { background: #fce4ec; color: #c62828; border-radius: 20px; padding: 3px 12px; font-size: .78rem; font-weight: 700; cursor: pointer; }
 
+  /* ── task cards ── */
+  .task-card { align-items: flex-start; }
+  .task-card.done { opacity: .6; }
+  .task-card.done .task-info strong { text-decoration: line-through; }
+  .task-check {
+    width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
+    border: 2px solid var(--purple-light); background: var(--white);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; flex-shrink: 0; margin-top: 4px; transition: all .15s;
+  }
+  .task-check.checked { background: var(--green); border-color: var(--green); color: #fff; }
+  .task-info small { display: block; margin-top: 2px; }
+  .task-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; font-size: .78rem; color: var(--muted); }
+  .task-meta span { background: var(--grad-light); border-radius: 20px; padding: 2px 10px; }
+  .task-body { margin-top: 8px; font-size: .85rem; color: var(--text); line-height: 1.6; white-space: pre-wrap; }
+
   /* ── emoji picker ── */
   .emoji-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .emoji-pick button {
@@ -254,6 +270,7 @@
 
 <nav>
   <button class="active" onclick="showPage('rules',this)">📋 כללים</button>
+  <button onclick="showPage('tasks',this)">✅ ניהול משימות</button>
   <button onclick="showPage('log',this)">📜 היסטוריה</button>
   <button onclick="showPage('settings',this)">⚙️ הגדרות</button>
 </nav>
@@ -269,6 +286,44 @@
       </div>
       <div id="rules-list" class="rules-grid">
         <div class="empty"><div class="empty-icon">⚙️</div>טוען...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TASKS ═══ -->
+  <div id="page-tasks" class="page">
+    <div class="card">
+      <div class="card-header">
+        <h2>משימות שנשלחו לעובדים</h2>
+        <button class="btn btn-secondary" onclick="loadTasks()">🔄 רענן</button>
+      </div>
+      <div class="form-row" style="margin-bottom:16px">
+        <div class="field" style="margin-bottom:0">
+          <label>סינון לפי עובד/ת</label>
+          <select id="task-filter-employee" onchange="renderTasks()">
+            <option value="">הכל</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>סינון לפי סטטוס</label>
+          <select id="task-filter-status" onchange="renderTasks()">
+            <option value="">הכל</option>
+            <option value="pending">ממתינות</option>
+            <option value="done">בוצעו</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>מיון</label>
+        <select id="task-sort" onchange="renderTasks()">
+          <option value="time-desc">תאריך — מהחדש לישן</option>
+          <option value="time-asc">תאריך — מהישן לחדש</option>
+          <option value="employee">לפי שם עובד/ת</option>
+          <option value="status">לפי סטטוס</option>
+        </select>
+      </div>
+      <div id="tasks-list" class="rules-grid" style="margin-top:18px">
+        <div class="empty"><div class="empty-icon">✅</div>טוען...</div>
       </div>
     </div>
   </div>
@@ -420,6 +475,7 @@ function showPage(name, btn) {
   document.getElementById('page-' + name).classList.add('active');
   if (btn) btn.classList.add('active');
   if (name === 'rules')    loadRules();
+  if (name === 'tasks')    loadTasks();
   if (name === 'log')      loadLog();
   if (name === 'settings') loadSettings();
 }
@@ -530,6 +586,70 @@ function updatePreview() {
   const employee = document.getElementById('rule-employee') ? document.getElementById('rule-employee').value : '';
   const frame = document.getElementById('email-preview-frame');
   if (frame) frame.innerHTML = buildEmailHtml(employee);
+}
+
+// ── tasks ──────────────────────────────────────────────────────────────────────
+let tasksCache = [];
+
+async function loadTasks() {
+  tasksCache = await (await fetch('/api/tasks')).json();
+  const sel = document.getElementById('task-filter-employee');
+  const current = sel.value;
+  const employees = [...new Set(tasksCache.map(t => t.employee_name).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">הכל</option>' + employees.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join('');
+  sel.value = current;
+  renderTasks();
+}
+
+function renderTasks() {
+  const el = document.getElementById('tasks-list');
+  const empFilter = document.getElementById('task-filter-employee').value;
+  const statusFilter = document.getElementById('task-filter-status').value;
+  const sort = document.getElementById('task-sort').value;
+
+  let tasks = tasksCache.slice();
+  if (empFilter)    tasks = tasks.filter(t => t.employee_name === empFilter);
+  if (statusFilter) tasks = tasks.filter(t => (t.status || 'pending') === statusFilter);
+
+  tasks.sort((a, b) => {
+    if (sort === 'time-asc')  return new Date(a.time) - new Date(b.time);
+    if (sort === 'employee')  return (a.employee_name||'').localeCompare(b.employee_name||'', 'he');
+    if (sort === 'status')    return (a.status||'pending').localeCompare(b.status||'pending');
+    return new Date(b.time) - new Date(a.time);
+  });
+
+  if (!tasks.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div>אין משימות להצגה.</div>';
+    return;
+  }
+
+  el.innerHTML = tasks.map(t => {
+    const done = t.status === 'done';
+    return `
+    <div class="rule-card task-card ${done ? 'done' : ''}">
+      <div class="task-check ${done ? 'checked' : ''}" onclick="toggleTask('${t.id}', ${!done})" title="${done ? 'סמן כלא בוצע' : 'סמן כבוצע'}">${done ? '✓' : ''}</div>
+      <div class="rule-info task-info">
+        <strong>${esc(t.subject || t.rule_name || 'משימה')}</strong>
+        <small>אל: ${esc(t.employee_name || '')} · ${esc(t.email_to || '')}</small>
+        <div class="task-meta">
+          <span>${esc(t.emoji || '')} ${esc(t.rule_name || '')}</span>
+          <span>🕐 ${fmtTime(t.time)}</span>
+          ${done && t.completed_at ? `<span>✅ בוצע ב-${fmtTime(t.completed_at)}</span>` : ''}
+        </div>
+        ${t.body ? `<div class="task-body">${esc(t.body)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function toggleTask(id, makeDone) {
+  await fetch('/api/tasks/' + id, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status: makeDone ? 'done' : 'pending'})
+  });
+  await loadTasks();
+  showToast(makeDone ? 'המשימה סומנה כבוצעה ✓' : 'המשימה סומנה כממתינה');
 }
 
 // ── log ────────────────────────────────────────────────────────────────────────
