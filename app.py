@@ -57,6 +57,7 @@ if _client_secrets_env:
 RULES_FILE  = DATA_DIR / "rules.json"
 LOG_FILE    = DATA_DIR / "log.json"
 TASKS_FILE  = DATA_DIR / "tasks.json"
+GROUPS_FILE = DATA_DIR / "groups.json"
 CONFIG_FILE = DATA_DIR / "config.json"
 TOKEN_FILE  = DATA_DIR / "gmail_token.json"
 
@@ -200,6 +201,19 @@ def append_task(entry: dict):
     tasks = load_tasks()
     tasks.insert(0, entry)
     save_tasks(tasks)
+
+
+def load_groups():
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        return db_get("groups", [])
+    return load_json(GROUPS_FILE, [])
+
+
+def save_groups(data):
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("groups", data)
+    else:
+        save_json(GROUPS_FILE, data)
 
 
 def load_gmail_token():
@@ -876,6 +890,62 @@ def contacts_status():
     contacts = db_get("contacts", {})
     updated  = db_get("contacts_updated", "")
     return jsonify({"count": len(contacts), "updated": updated})
+
+
+@app.route("/api/contacts", methods=["GET"])
+def get_contacts():
+    contacts = db_get("contacts", {})
+    return jsonify([{"phone": phone, "name": name} for phone, name in contacts.items()])
+
+
+@app.route("/api/groups", methods=["GET"])
+def get_groups():
+    return jsonify(load_groups())
+
+
+@app.route("/api/groups", methods=["POST"])
+def create_group():
+    body = request.get_json() or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    group = {
+        "id": datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+        "name": name,
+        "members": body.get("members") or [],
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    groups = load_groups()
+    groups.insert(0, group)
+    save_groups(groups)
+    return jsonify(group)
+
+
+@app.route("/api/groups/<gid>", methods=["PUT"])
+def update_group(gid):
+    body = request.get_json() or {}
+    groups = load_groups()
+    for i, g in enumerate(groups):
+        if g["id"] == gid:
+            if "name" in body:
+                g["name"] = (body["name"] or "").strip()
+            if "members" in body:
+                g["members"] = body["members"] or []
+            g["updated_at"] = datetime.utcnow().isoformat()
+            groups[i] = g
+            save_groups(groups)
+            return jsonify(g)
+    return jsonify({"error": "not found"}), 404
+
+
+@app.route("/api/groups/<gid>", methods=["DELETE"])
+def delete_group(gid):
+    groups = load_groups()
+    new_groups = [g for g in groups if g["id"] != gid]
+    if len(new_groups) == len(groups):
+        return jsonify({"error": "not found"}), 404
+    save_groups(new_groups)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/green/test", methods=["POST"])
