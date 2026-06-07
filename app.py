@@ -927,6 +927,8 @@ def create_group():
         "id": datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
         "name": name,
         "members": body.get("members") or [],
+        "button_message_id": body.get("button_message_id") or "",
+        "send_day": body.get("send_day") or None,
         "updated_at": datetime.utcnow().isoformat(),
     }
     groups = load_groups()
@@ -945,6 +947,10 @@ def update_group(gid):
                 g["name"] = (body["name"] or "").strip()
             if "members" in body:
                 g["members"] = body["members"] or []
+            if "button_message_id" in body:
+                g["button_message_id"] = body["button_message_id"] or ""
+            if "send_day" in body:
+                g["send_day"] = body["send_day"] or None
             g["updated_at"] = datetime.utcnow().isoformat()
             groups[i] = g
             save_groups(groups)
