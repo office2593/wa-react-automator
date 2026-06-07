@@ -275,6 +275,7 @@
 <nav>
   <button class="active" onclick="showPage('rules',this)">📋 כללים</button>
   <button onclick="showPage('tasks',this)">✅ ניהול משימות</button>
+  <button onclick="showPage('groups',this)">👥 קבוצות לקוחות</button>
   <button onclick="showPage('log',this)">📜 היסטוריה</button>
   <button onclick="showPage('settings',this)">⚙️ הגדרות</button>
 </nav>
@@ -303,6 +304,19 @@
       </div>
       <div id="tasks-list" style="margin-top:4px">
         <div class="empty"><div class="empty-icon">✅</div>טוען...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ GROUPS ═══ -->
+  <div id="page-groups" class="page">
+    <div class="card">
+      <div class="card-header">
+        <h2>קבוצות לקוחות</h2>
+        <button class="btn btn-primary" onclick="openNewGroup()">+ קבוצה חדשה</button>
+      </div>
+      <div id="groups-list" style="margin-top:4px">
+        <div class="empty"><div class="empty-icon">👥</div>טוען...</div>
       </div>
     </div>
   </div>
@@ -432,6 +446,38 @@
   </div>
 </div>
 
+<!-- ═══ GROUP EDITOR MODAL ═══ -->
+<div class="modal-overlay" id="group-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="group-modal-title">קבוצה חדשה</h3>
+      <button onclick="closeGroupModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-form" style="width:100%">
+        <div class="field">
+          <label>שם הקבוצה</label>
+          <input id="group-name" placeholder="לדוגמה: לקוחות עם תלוש שכר חודשי" />
+        </div>
+        <div class="field">
+          <label>חיפוש איש קשר</label>
+          <input id="group-contact-search" placeholder="הקלד שם לחיפוש..." oninput="renderGroupContacts()" />
+        </div>
+        <div class="field">
+          <label>בחירת אנשי קשר (<span id="group-selected-count">0</span> נבחרו)</label>
+          <div id="group-contacts-list" style="max-height:320px;overflow-y:auto;border:1.5px solid var(--border);border-radius:10px;padding:8px">
+            <div class="empty"><div class="empty-icon">👥</div>טוען אנשי קשר...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeGroupModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveGroup()">💾 שמור קבוצה</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const EMOJIS = ['👍','❤️','😂','😮','😢','🙏','✅','🔥','👏','⭐','💪','🎉','👀','💰','✔️','❌','🚀','📌','📞','📧','⏳','⌛','🟡','🟢','🔴'];
 
@@ -455,6 +501,7 @@ function showPage(name, btn) {
   if (btn) btn.classList.add('active');
   if (name === 'rules')    loadRules();
   if (name === 'tasks')    loadTasks();
+  if (name === 'groups')   loadGroups();
   if (name === 'log')      loadLog();
   if (name === 'settings') loadSettings();
 }
@@ -848,6 +895,112 @@ async function disconnectGmail() {
   if (!confirm('לנתק Gmail?')) return;
   await fetch('/api/gmail/disconnect', {method:'POST'});
   checkGmailStatus();
+}
+
+// ── groups ────────────────────────────────────────────────────────────────────
+let groupsCache = [];
+let contactsCache = [];
+let groupEditingId = null;
+let groupSelectedMembers = new Set();
+
+async function loadGroups() {
+  groupsCache = await (await fetch('/api/groups')).json();
+  renderGroups();
+}
+
+function renderGroups() {
+  const el = document.getElementById('groups-list');
+  if (!groupsCache.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">👥</div>אין קבוצות עדיין. לחץ "+ קבוצה חדשה" כדי להוסיף.</div>';
+    return;
+  }
+  el.innerHTML = groupsCache.map(g => `
+    <div class="rule-card">
+      <div class="rule-emoji">👥</div>
+      <div class="rule-info">
+        <strong>${esc(g.name || 'ללא שם')}</strong>
+        <small>${(g.members||[]).length} אנשי קשר · עודכן ${fmtTime(g.updated_at)}</small>
+      </div>
+      <div class="rule-actions">
+        <button class="btn btn-ghost" style="padding:7px 12px" onclick="openEditGroup('${g.id}')">✏️</button>
+        <button class="btn btn-danger" style="padding:7px 12px" onclick="deleteGroup('${g.id}')">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+async function ensureContactsLoaded() {
+  if (contactsCache.length) return;
+  contactsCache = await (await fetch('/api/contacts')).json();
+}
+
+function renderGroupContacts() {
+  const search = document.getElementById('group-contact-search').value.trim();
+  const el = document.getElementById('group-contacts-list');
+  let list = contactsCache;
+  if (search) list = list.filter(c => (c.name||'').includes(search) || (c.phone||'').includes(search));
+  if (!list.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">👥</div>לא נמצאו אנשי קשר.</div>';
+  } else {
+    el.innerHTML = list.map(c => `
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer" onmouseover="this.style.background='var(--grad-light)'" onmouseout="this.style.background=''">
+        <input type="checkbox" ${groupSelectedMembers.has(c.phone) ? 'checked' : ''} onchange="toggleGroupMember('${c.phone}', this.checked)" />
+        <span><strong>${esc(c.name || c.phone)}</strong>${c.name ? ' · <small>'+esc(c.phone)+'</small>' : ''}</span>
+      </label>`).join('');
+  }
+  document.getElementById('group-selected-count').textContent = groupSelectedMembers.size;
+}
+
+function toggleGroupMember(phone, checked) {
+  if (checked) groupSelectedMembers.add(phone);
+  else groupSelectedMembers.delete(phone);
+  document.getElementById('group-selected-count').textContent = groupSelectedMembers.size;
+}
+
+async function openNewGroup() {
+  groupEditingId = null;
+  groupSelectedMembers = new Set();
+  document.getElementById('group-modal-title').textContent = 'קבוצה חדשה';
+  document.getElementById('group-name').value = '';
+  document.getElementById('group-contact-search').value = '';
+  await ensureContactsLoaded();
+  renderGroupContacts();
+  document.getElementById('group-modal').classList.add('open');
+}
+
+async function openEditGroup(id) {
+  const g = groupsCache.find(x => x.id === id);
+  if (!g) return;
+  groupEditingId = id;
+  groupSelectedMembers = new Set(g.members || []);
+  document.getElementById('group-modal-title').textContent = 'עריכת קבוצה';
+  document.getElementById('group-name').value = g.name || '';
+  document.getElementById('group-contact-search').value = '';
+  await ensureContactsLoaded();
+  renderGroupContacts();
+  document.getElementById('group-modal').classList.add('open');
+}
+
+function closeGroupModal() {
+  document.getElementById('group-modal').classList.remove('open');
+}
+
+async function saveGroup() {
+  const name = document.getElementById('group-name').value.trim();
+  if (!name) { showToast('יש להזין שם לקבוצה', true); return; }
+  const payload = { name, members: Array.from(groupSelectedMembers) };
+  const url = groupEditingId ? `/api/groups/${groupEditingId}` : '/api/groups';
+  const method = groupEditingId ? 'PUT' : 'POST';
+  const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  if (!res.ok) { showToast('שגיאה בשמירת הקבוצה', true); return; }
+  closeGroupModal();
+  showToast('הקבוצה נשמרה ✓');
+  loadGroups();
+}
+
+async function deleteGroup(id) {
+  if (!confirm('למחוק את הקבוצה?')) return;
+  await fetch(`/api/groups/${id}`, { method: 'DELETE' });
+  loadGroups();
 }
 
 // ── utils ──────────────────────────────────────────────────────────────────────
