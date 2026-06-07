@@ -533,6 +533,19 @@ threading.Thread(target=_contact_refresh_loop, daemon=True).start()
 
 # ── webhook ───────────────────────────────────────────────────────────────────
 
+@app.route("/twilio-webhook", methods=["POST"])
+def twilio_webhook():
+    """Test endpoint for the new Twilio WhatsApp Sandbox channel — logs incoming
+    messages and echoes them back so we can verify the round trip works."""
+    from_number = request.form.get("From", "")
+    body_text   = request.form.get("Body", "")
+    log.info("Twilio webhook received: From=%r Body=%r", from_number, body_text)
+
+    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response><Message>קיבלתי ✓ — כתבת: {body_text}</Message></Response>"""
+    return twiml, 200, {"Content-Type": "text/xml; charset=utf-8"}
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     payload = request.get_json(silent=True) or {}
