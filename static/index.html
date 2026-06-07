@@ -276,6 +276,7 @@
   <button class="active" onclick="showPage('rules',this)">📋 כללים</button>
   <button onclick="showPage('tasks',this)">✅ ניהול משימות</button>
   <button onclick="showPage('groups',this)">👥 קבוצות לקוחות</button>
+  <button onclick="showPage('buttonmsgs',this)">🔘 הודעות עם כפתורים</button>
   <button onclick="showPage('log',this)">📜 היסטוריה</button>
   <button onclick="showPage('settings',this)">⚙️ הגדרות</button>
 </nav>
@@ -317,6 +318,19 @@
       </div>
       <div id="groups-list" style="margin-top:4px">
         <div class="empty"><div class="empty-icon">👥</div>טוען...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ BUTTON MESSAGES ═══ -->
+  <div id="page-buttonmsgs" class="page">
+    <div class="card">
+      <div class="card-header">
+        <h2>הודעות עם כפתורים</h2>
+        <button class="btn btn-primary" onclick="openNewButtonMsg()">+ הודעה חדשה</button>
+      </div>
+      <div id="buttonmsgs-list" style="margin-top:4px">
+        <div class="empty"><div class="empty-icon">🔘</div>טוען...</div>
       </div>
     </div>
   </div>
@@ -478,6 +492,60 @@
   </div>
 </div>
 
+<!-- ═══ BUTTON MESSAGE EDITOR MODAL ═══ -->
+<div class="modal-overlay" id="buttonmsg-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="buttonmsg-modal-title">הודעה חדשה עם כפתורים</h3>
+      <button onclick="closeButtonMsgModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-form">
+        <div class="field">
+          <label>שם פנימי (לזיהוי במערכת)</label>
+          <input id="bm-name" placeholder="לדוגמה: בדיקת תלוש שכר חודשי" oninput="updateButtonMsgPreview()" />
+        </div>
+        <div class="field">
+          <label>טקסט ההודעה</label>
+          <textarea id="bm-text" rows="4" placeholder="לדוגמה: שלום {{שם}}, האם להפיק לך תלוש שכר החודש?" oninput="updateButtonMsgPreview()"></textarea>
+          <div class="hint">ניתן להשתמש ב-<code>{{שם}}</code> שיוחלף אוטומטית בשם הלקוח</div>
+        </div>
+        <div class="field">
+          <label>כפתור 1</label>
+          <input id="bm-btn-0" placeholder="לדוגמה: ✅ כן, להפיק" oninput="updateButtonMsgPreview()" />
+        </div>
+        <div class="field">
+          <label>כפתור 2 (אופציונלי)</label>
+          <input id="bm-btn-1" placeholder="לדוגמה: ❌ לא הפעם" oninput="updateButtonMsgPreview()" />
+        </div>
+        <div class="field">
+          <label>כפתור 3 (אופציונלי)</label>
+          <input id="bm-btn-2" placeholder="" oninput="updateButtonMsgPreview()" />
+        </div>
+        <div style="background:var(--grad-light);border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;font-size:.85rem;color:var(--purple-dark);line-height:1.7;display:flex;gap:10px;align-items:flex-start">
+          <span style="font-size:1.2rem;flex-shrink:0">ℹ️</span>
+          <span>הודעות עם כפתורים טעונות <strong>אישור מראש מ-Meta</strong> לפני שניתן לשלוח אותן ללקוחות. ניצור אותן כאן כטיוטה, ונגיש לאישור בנפרד.</span>
+        </div>
+      </div>
+
+      <!-- PREVIEW -->
+      <div class="modal-preview">
+        <div class="preview-label">👁️ תצוגה מקדימה</div>
+        <div id="buttonmsg-preview-frame" style="background:#e9edf1;border-radius:14px;padding:18px">
+          <div style="background:#fff;border-radius:10px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.12);max-width:280px">
+            <div id="bm-preview-text" style="white-space:pre-wrap;line-height:1.6;color:#222;font-size:.92rem;margin-bottom:10px">שלום [שם], ...</div>
+            <div id="bm-preview-buttons"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeButtonMsgModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveButtonMsg()">💾 שמור הודעה</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const EMOJIS = ['👍','❤️','😂','😮','😢','🙏','✅','🔥','👏','⭐','💪','🎉','👀','💰','✔️','❌','🚀','📌','📞','📧','⏳','⌛','🟡','🟢','🔴'];
 
@@ -502,6 +570,7 @@ function showPage(name, btn) {
   if (name === 'rules')    loadRules();
   if (name === 'tasks')    loadTasks();
   if (name === 'groups')   loadGroups();
+  if (name === 'buttonmsgs') loadButtonMsgs();
   if (name === 'log')      loadLog();
   if (name === 'settings') loadSettings();
 }
@@ -1001,6 +1070,97 @@ async function deleteGroup(id) {
   if (!confirm('למחוק את הקבוצה?')) return;
   await fetch(`/api/groups/${id}`, { method: 'DELETE' });
   loadGroups();
+}
+
+// ── button messages ───────────────────────────────────────────────────────────
+let buttonMsgsCache = [];
+let buttonMsgEditingId = null;
+
+async function loadButtonMsgs() {
+  buttonMsgsCache = await (await fetch('/api/button-messages')).json();
+  renderButtonMsgs();
+}
+
+function renderButtonMsgs() {
+  const el = document.getElementById('buttonmsgs-list');
+  if (!buttonMsgsCache.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🔘</div>אין הודעות עם כפתורים עדיין. לחץ "+ הודעה חדשה" כדי להוסיף.</div>';
+    return;
+  }
+  el.innerHTML = buttonMsgsCache.map(m => `
+    <div class="rule-card">
+      <div class="rule-emoji">🔘</div>
+      <div class="rule-info">
+        <strong>${esc(m.name || 'ללא שם')}</strong>
+        <small>${(m.buttons||[]).map(b=>esc(b)).join(' · ')}</small>
+      </div>
+      <div class="rule-actions">
+        <button class="btn btn-ghost" style="padding:7px 12px" onclick="openEditButtonMsg('${m.id}')">✏️</button>
+        <button class="btn btn-danger" style="padding:7px 12px" onclick="deleteButtonMsg('${m.id}')">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+function updateButtonMsgPreview() {
+  const text = document.getElementById('bm-text').value.trim() || 'שלום [שם], ...';
+  document.getElementById('bm-preview-text').textContent = text;
+  const buttons = [0,1,2].map(i => document.getElementById('bm-btn-'+i).value.trim()).filter(Boolean);
+  const btnsEl = document.getElementById('bm-preview-buttons');
+  if (!buttons.length) {
+    btnsEl.innerHTML = '';
+    return;
+  }
+  btnsEl.innerHTML = buttons.map(b => `
+    <div style="border-top:1px solid #e5e7eb;text-align:center;padding:9px 0;color:#00897B;font-weight:600;font-size:.9rem">${esc(b)}</div>
+  `).join('');
+}
+
+function openNewButtonMsg() {
+  buttonMsgEditingId = null;
+  document.getElementById('buttonmsg-modal-title').textContent = 'הודעה חדשה עם כפתורים';
+  document.getElementById('bm-name').value = '';
+  document.getElementById('bm-text').value = '';
+  [0,1,2].forEach(i => document.getElementById('bm-btn-'+i).value = '');
+  updateButtonMsgPreview();
+  document.getElementById('buttonmsg-modal').classList.add('open');
+}
+
+function openEditButtonMsg(id) {
+  const m = buttonMsgsCache.find(x => x.id === id);
+  if (!m) return;
+  buttonMsgEditingId = id;
+  document.getElementById('buttonmsg-modal-title').textContent = 'עריכת הודעה';
+  document.getElementById('bm-name').value = m.name || '';
+  document.getElementById('bm-text').value = m.text || '';
+  const buttons = m.buttons || [];
+  [0,1,2].forEach(i => document.getElementById('bm-btn-'+i).value = buttons[i] || '');
+  updateButtonMsgPreview();
+  document.getElementById('buttonmsg-modal').classList.add('open');
+}
+
+function closeButtonMsgModal() {
+  document.getElementById('buttonmsg-modal').classList.remove('open');
+}
+
+async function saveButtonMsg() {
+  const name = document.getElementById('bm-name').value.trim();
+  const text = document.getElementById('bm-text').value.trim();
+  const buttons = [0,1,2].map(i => document.getElementById('bm-btn-'+i).value.trim()).filter(Boolean);
+  if (!name || !text || !buttons.length) { showToast('יש למלא שם, טקסט הודעה ולפחות כפתור אחד', true); return; }
+  const payload = { name, text, buttons };
+  const url = buttonMsgEditingId ? `/api/button-messages/${buttonMsgEditingId}` : '/api/button-messages';
+  const method = buttonMsgEditingId ? 'PUT' : 'POST';
+  const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  if (!res.ok) { showToast('שגיאה בשמירת ההודעה', true); return; }
+  closeButtonMsgModal();
+  showToast('ההודעה נשמרה ✓');
+  loadButtonMsgs();
+}
+
+async function deleteButtonMsg(id) {
+  if (!confirm('למחוק את ההודעה?')) return;
+  await fetch(`/api/button-messages/${id}`, { method: 'DELETE' });
+  loadButtonMsgs();
 }
 
 // ── utils ──────────────────────────────────────────────────────────────────────
