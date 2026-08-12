@@ -64,10 +64,15 @@ CONFIG_FILE = DATA_DIR / "config.json"
 TOKEN_FILE          = DATA_DIR / "gmail_token.json"
 CALENDAR_TOKEN_FILE = DATA_DIR / "calendar_token.json"
 
-# Gmail sending and Calendar scheduling are authorized separately — they're often
-# different Google accounts (e.g. a Workspace account for mail, a personal
-# account holding the actual calendars), so each gets its own OAuth token.
-GMAIL_SCOPES    = ["https://www.googleapis.com/auth/gmail.send"]
+# Two separate Google connections:
+# - Gmail token: sends mail AND writes task events onto its OWN calendar (it's
+#   the account that actually owns that calendar, so it always has write access).
+# - Calendar token: a possibly different "viewer" account used only to check
+#   free/busy across several calendars — read-only, never writes events.
+GMAIL_SCOPES    = [
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/calendar.events",
+]
 CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -376,8 +381,9 @@ def get_gmail_service():
 
 
 def get_calendar_service():
-    """Separate OAuth token from Gmail — the calendars may live in a different
-    Google account than the one sending mail."""
+    """Separate OAuth token from Gmail — used only to READ free/busy. This
+    account may only have viewer access to some calendars, so it must never be
+    used to write events (see get_calendar_write_service)."""
     if not GOOGLE_LIBS:
         raise RuntimeError("google-auth libraries not installed")
     load_calendar_token()
@@ -390,6 +396,25 @@ def get_calendar_service():
             save_calendar_token(json.loads(creds.to_json()))
         else:
             raise RuntimeError("Google Calendar not authorized — please connect via the dashboard")
+    return build("calendar", "v3", credentials=creds)
+
+
+def get_calendar_write_service():
+    """Uses the Gmail token (which includes calendar.events scope) to create
+    and delete task events — this is the account that actually owns its own
+    calendar, so it always has write access, unlike a separate viewer account."""
+    if not GOOGLE_LIBS:
+        raise RuntimeError("google-auth libraries not installed")
+    load_gmail_token()
+    creds = None
+    if TOKEN_FILE.exists():
+        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), GMAIL_SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            save_gmail_token(json.loads(creds.to_json()))
+        else:
+            raise RuntimeError("Gmail not authorized — please connect via the dashboard")
     return build("calendar", "v3", credentials=creds)
 
 
@@ -721,7 +746,7 @@ def _delete_calendar_event(event_id: str):
     cfg = load_config()
     calendar_id = cfg.get("business_calendar_id") or "primary"
     try:
-        service = get_calendar_service()
+        service = get_calendar_write_service()
         service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
     except Exception as e:
         log.warning("Could not delete calendar event %s: %s", event_id, e)
@@ -826,7 +851,7 @@ def try_schedule_pending_tasks():
     pending.sort(key=lambda t: _wsjf_score(t, now), reverse=True)
 
     calendar_id = cfg.get("business_calendar_id") or "primary"
-    service = get_calendar_service()
+    service = get_calendar_write_service()
     scheduled_summaries = []
 
     for task in pending:

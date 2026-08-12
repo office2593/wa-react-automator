@@ -403,10 +403,10 @@
       <div class="hint">
         כדי לחבר Gmail:
         <ol>
-          <li>ב-<a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> → צור פרויקט → אפשר Gmail API</li>
+          <li>ב-<a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> → צור פרויקט → אפשר Gmail API וגם Google Calendar API (החיבור הזה כותב גם משימות ליומן שלו)</li>
           <li>Credentials → OAuth 2.0 Client ID → Web Application</li>
           <li>הורד JSON ושמור כ-<code>data/client_secrets.json</code></li>
-          <li>לחץ "חבר Gmail"</li>
+          <li>לחץ "חבר Gmail" (אם כבר היה מחובר בעבר — יש ללחוץ שוב כדי לאשר גם את הרשאת היומן החדשה)</li>
         </ol>
       </div>
     </div>
@@ -456,12 +456,16 @@
         <div class="field"><label>מזהה צ'אט וואטסאפ אישי</label><input id="pt-personal-chat" placeholder="9725XXXXXXX@c.us" />
           <div class="hint">הצ'אט מול המערכת שממנו תיענה לשאלות הערכת-זמן — לא צ'אט של לקוח. אפשר להשתמש בכלי ההמרה שלמעלה.</div>
         </div>
+        <div class="field">
+          <label>יומן לכתיבת משימות (בחשבון ה-Gmail ששולח את המיילים)</label>
+          <input id="pt-calendar-id" placeholder="primary" />
+          <div class="hint">האירועים תמיד ייכתבו דרך אותו חשבון Google ששולח את המיילים (לא חשבון ה-Calendar הנפרד למטה) — כי זה החשבון שבטוח יש לו הרשאת כתיבה. ברירת המחדל "primary" = היומן הראשי של אותו חשבון.</div>
+        </div>
       </div>
       <div class="field" style="margin-top:8px">
-        <label>בחירת יומנים</label>
+        <label>יומנים לבדיקת פנאי (מהחשבון המחובר ב-"Google Calendar" למעלה)</label>
         <div class="hint" style="margin-bottom:8px">
-          "כתיבת משימות" — היומן היחיד שבו ייווצרו אירועי המשימות (בחירה אחת).
-          "בדיקת פנאי" — כל היומנים שצריך לבדוק שאתה פנוי בהם לפני קביעת משימה (אפשר כמה, כולל יומנים שלא מסומנים לכתיבה).
+          כל היומנים שצריך לבדוק שאתה פנוי בהם לפני קביעת משימה — יכולים להיות מכמה חשבונות/יומנים, זה רק לקריאה ולא לכתיבה.
         </div>
         <button class="btn btn-ghost" type="button" onclick="loadCalendarPicker()">🔄 טען רשימת יומנים</button>
         <div id="calendar-picker" style="margin-top:10px">
@@ -932,7 +936,6 @@ function statusLabel(s) {
 }
 
 // ── settings ──────────────────────────────────────────────────────────────────
-let selectedWriteCalendar = 'primary';
 let selectedBusyCalendars = [];
 
 async function loadSettings() {
@@ -943,7 +946,7 @@ async function loadSettings() {
   document.getElementById('green-token').value    = cfg.green_api_token   || '';
   document.getElementById('pt-personal-email').value = cfg.personal_email || 'office@odcpa.co.il';
   document.getElementById('pt-personal-chat').value  = cfg.personal_whatsapp_chat_id || '';
-  selectedWriteCalendar = cfg.business_calendar_id || 'primary';
+  document.getElementById('pt-calendar-id').value    = cfg.business_calendar_id || 'primary';
   selectedBusyCalendars = cfg.busy_calendar_ids || [];
   checkGmailStatus();
   checkCalendarStatus();
@@ -979,17 +982,14 @@ function usePhoneChatId() {
 }
 
 async function savePersonalTaskConfig() {
-  const writeRadio = document.querySelector('input[name="write-calendar"]:checked');
   const busyCalendars = Array.from(document.querySelectorAll('.busy-calendar-cb:checked')).map(cb => cb.value);
-  const businessCalendarId = writeRadio ? writeRadio.value : selectedWriteCalendar;
 
   await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
     personal_email:            document.getElementById('pt-personal-email').value.trim(),
     personal_whatsapp_chat_id: document.getElementById('pt-personal-chat').value.trim(),
-    business_calendar_id:      businessCalendarId,
+    business_calendar_id:      document.getElementById('pt-calendar-id').value.trim() || 'primary',
     busy_calendar_ids:         busyCalendars,
   })});
-  selectedWriteCalendar = businessCalendarId;
   selectedBusyCalendars = busyCalendars;
   showToast('הגדרות ניהול הזמן נשמרו ✓');
 }
@@ -1132,7 +1132,6 @@ function renderCalendarPicker() {
       <thead>
         <tr style="border-bottom:1.5px solid var(--border)">
           <th style="text-align:right;padding:6px 4px">יומן</th>
-          <th style="padding:6px 4px">כתיבת משימות</th>
           <th style="padding:6px 4px">בדיקת פנאי</th>
         </tr>
       </thead>
@@ -1140,9 +1139,6 @@ function renderCalendarPicker() {
         ${calendarsCache.map(c => `
           <tr style="border-bottom:1px solid var(--border)">
             <td style="padding:6px 4px">${esc(c.summary)}${c.primary ? ' <span class="hint" style="display:inline">(ראשי)</span>' : ''}</td>
-            <td style="text-align:center;padding:6px 4px">
-              <input type="radio" name="write-calendar" value="${esc(c.id)}" ${c.id === selectedWriteCalendar ? 'checked' : ''}>
-            </td>
             <td style="text-align:center;padding:6px 4px">
               <input type="checkbox" class="busy-calendar-cb" value="${esc(c.id)}" ${selectedBusyCalendars.includes(c.id) ? 'checked' : ''}>
             </td>
