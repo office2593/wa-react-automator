@@ -61,12 +61,14 @@ TASKS_FILE  = DATA_DIR / "tasks.json"
 GROUPS_FILE = DATA_DIR / "groups.json"
 BUTTON_MSGS_FILE = DATA_DIR / "button_messages.json"
 CONFIG_FILE = DATA_DIR / "config.json"
-TOKEN_FILE  = DATA_DIR / "gmail_token.json"
+TOKEN_FILE          = DATA_DIR / "gmail_token.json"
+CALENDAR_TOKEN_FILE = DATA_DIR / "calendar_token.json"
 
-SCOPES = [
-    "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/calendar",
-]
+# Gmail sending and Calendar scheduling are authorized separately — they're often
+# different Google accounts (e.g. a Workspace account for mail, a personal
+# account holding the actual calendars), so each gets its own OAuth token.
+GMAIL_SCOPES    = ["https://www.googleapis.com/auth/gmail.send"]
+CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -210,6 +212,18 @@ def get_timezone_name(cfg=None):
     return cfg.get("timezone") or "Asia/Jerusalem"
 
 
+def get_busy_calendar_ids(cfg=None):
+    """Calendars checked for busy time when looking for a free slot. Defaults to
+    just the business calendar if no extra calendars were configured — but you
+    can list several (e.g. a personal calendar you also don't want double-booked).
+    New events are always written to `business_calendar_id` alone, regardless."""
+    cfg = cfg if cfg is not None else load_config()
+    ids = cfg.get("busy_calendar_ids")
+    if isinstance(ids, list) and ids:
+        return [c for c in ids if c]
+    return [cfg.get("business_calendar_id") or "primary"]
+
+
 def load_log():
     if DATABASE_URL and POSTGRES_AVAILABLE:
         return db_get("log", [])
@@ -285,6 +299,20 @@ def save_gmail_token(token_dict):
         db_set("gmail_token", token_dict)
 
 
+def load_calendar_token():
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        token = db_get("calendar_token", None)
+        if token:
+            save_json(CALENDAR_TOKEN_FILE, token)
+    return CALENDAR_TOKEN_FILE
+
+
+def save_calendar_token(token_dict):
+    save_json(CALENDAR_TOKEN_FILE, token_dict)
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("calendar_token", token_dict)
+
+
 # ── AI email generation ───────────────────────────────────────────────────────
 
 def generate_email_content(sender_name: str, message: str, employee_name: str) -> dict:
@@ -337,7 +365,7 @@ def get_gmail_service():
     load_gmail_token()
     creds = None
     if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), GMAIL_SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -348,19 +376,20 @@ def get_gmail_service():
 
 
 def get_calendar_service():
-    """Reuses the same OAuth token as Gmail (SCOPES now includes calendar access)."""
+    """Separate OAuth token from Gmail — the calendars may live in a different
+    Google account than the one sending mail."""
     if not GOOGLE_LIBS:
         raise RuntimeError("google-auth libraries not installed")
-    load_gmail_token()
+    load_calendar_token()
     creds = None
-    if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+    if CALENDAR_TOKEN_FILE.exists():
+        creds = Credentials.from_authorized_user_file(str(CALENDAR_TOKEN_FILE), CALENDAR_SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            save_gmail_token(json.loads(creds.to_json()))
+            save_calendar_token(json.loads(creds.to_json()))
         else:
-            raise RuntimeError("Google account not authorized — please connect via the dashboard")
+            raise RuntimeError("Google Calendar not authorized — please connect via the dashboard")
     return build("calendar", "v3", credentials=creds)
 
 
@@ -704,7 +733,7 @@ def _compute_free_windows(cfg, days_ahead=SCHEDULING_LOOKAHEAD_DAYS):
     tz = ZoneInfo(get_timezone_name(cfg))
     now = datetime.now(tz)
     work_hours = get_work_hours(cfg)
-    calendar_id = cfg.get("business_calendar_id") or "primary"
+    busy_calendar_ids = get_busy_calendar_ids(cfg)
 
     range_start = now
     range_end = (now + timedelta(days=days_ahead)).replace(hour=23, minute=59, second=59, microsecond=0)
@@ -714,9 +743,12 @@ def _compute_free_windows(cfg, days_ahead=SCHEDULING_LOOKAHEAD_DAYS):
         "timeMin": range_start.isoformat(),
         "timeMax": range_end.isoformat(),
         "timeZone": get_timezone_name(cfg),
-        "items": [{"id": calendar_id}],
+        "items": [{"id": cid} for cid in busy_calendar_ids],
     }).execute()
-    busy_raw = fb.get("calendars", {}).get(calendar_id, {}).get("busy", [])
+    # merge busy blocks from every calendar into one combined "when am I actually free" view
+    busy_raw = []
+    for cid in busy_calendar_ids:
+        busy_raw.extend(fb.get("calendars", {}).get(cid, {}).get("busy", []))
     busy = [
         (datetime.fromisoformat(b["start"]).astimezone(tz), datetime.fromisoformat(b["end"]).astimezone(tz))
         for b in busy_raw
@@ -1340,13 +1372,21 @@ def save_config():
 
 
 _railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
-REDIRECT_URI = (
-    f"https://{_railway_domain}/api/gmail/callback"
-    if _railway_domain
-    else "http://localhost:5000/api/gmail/callback"
-)
 
-_oauth_flow: dict = {}
+
+def _redirect_uri(callback_path: str) -> str:
+    return (
+        f"https://{_railway_domain}{callback_path}"
+        if _railway_domain
+        else f"http://localhost:5000{callback_path}"
+    )
+
+
+GMAIL_REDIRECT_URI    = _redirect_uri("/api/gmail/callback")
+CALENDAR_REDIRECT_URI = _redirect_uri("/api/calendar/callback")
+
+_oauth_flow: dict = {}          # Gmail OAuth in-flight flow
+_oauth_flow_calendar: dict = {}  # Calendar OAuth in-flight flow — separate Google account
 
 
 @app.route("/api/gmail/auth-url", methods=["GET"])
@@ -1358,8 +1398,8 @@ def gmail_auth_url():
         return jsonify({"error": "client_secrets.json not found in data/"}), 400
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
     flow = Flow.from_client_secrets_file(
-        str(client_secrets), SCOPES,
-        redirect_uri=REDIRECT_URI
+        str(client_secrets), GMAIL_SCOPES,
+        redirect_uri=GMAIL_REDIRECT_URI
     )
     auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
     _oauth_flow["flow"] = flow
@@ -1388,7 +1428,7 @@ def gmail_status():
     if not TOKEN_FILE.exists():
         return jsonify({"connected": False})
     try:
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), GMAIL_SCOPES)
         if creds.expired and creds.refresh_token:
             creds.refresh(Request())
             save_gmail_token(json.loads(creds.to_json()))
@@ -1404,6 +1444,87 @@ def gmail_disconnect():
     if DATABASE_URL and POSTGRES_AVAILABLE:
         db_set("gmail_token", None)
     return jsonify({"ok": True})
+
+
+# ── Google Calendar OAuth — deliberately a separate connection from Gmail;   ──
+# ── the calendars you want to schedule against may live in a different      ──
+# ── Google account than the one Gmail sends from.                          ──
+
+@app.route("/api/calendar/auth-url", methods=["GET"])
+def calendar_auth_url():
+    if not GOOGLE_LIBS:
+        return jsonify({"error": "google-auth not installed"}), 500
+    client_secrets = DATA_DIR / "client_secrets.json"
+    if not client_secrets.exists():
+        return jsonify({"error": "client_secrets.json not found in data/"}), 400
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+    flow = Flow.from_client_secrets_file(
+        str(client_secrets), CALENDAR_SCOPES,
+        redirect_uri=CALENDAR_REDIRECT_URI
+    )
+    auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
+    _oauth_flow_calendar["flow"] = flow
+    return jsonify({"url": auth_url})
+
+
+@app.route("/api/calendar/callback")
+def calendar_callback():
+    if not GOOGLE_LIBS:
+        return "google-auth not installed", 500
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+    flow = _oauth_flow_calendar.get("flow")
+    if not flow:
+        return "Session expired, please try again.", 400
+    flow.fetch_token(authorization_response=request.url)
+    creds = flow.credentials
+    save_calendar_token(json.loads(creds.to_json()))
+    _oauth_flow_calendar.clear()
+    return """<html><body style="font-family:sans-serif;text-align:center;padding:60px">
+    <h2>✅ Google Calendar connected!</h2><p>You can close this tab.</p></body></html>"""
+
+
+@app.route("/api/calendar/status", methods=["GET"])
+def calendar_status():
+    load_calendar_token()
+    if not CALENDAR_TOKEN_FILE.exists():
+        return jsonify({"connected": False})
+    try:
+        creds = Credentials.from_authorized_user_file(str(CALENDAR_TOKEN_FILE), CALENDAR_SCOPES)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            save_calendar_token(json.loads(creds.to_json()))
+        return jsonify({"connected": creds.valid})
+    except Exception:
+        return jsonify({"connected": False})
+
+
+@app.route("/api/calendar/disconnect", methods=["POST"])
+def calendar_disconnect():
+    if CALENDAR_TOKEN_FILE.exists():
+        CALENDAR_TOKEN_FILE.unlink()
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("calendar_token", None)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/calendars", methods=["GET"])
+def list_calendars():
+    """All calendars visible in the connected Calendar account, so the dashboard
+    can offer a picker instead of making the user type in raw calendar IDs."""
+    try:
+        service = get_calendar_service()
+        result = service.calendarList().list().execute()
+        calendars = [
+            {
+                "id": c["id"],
+                "summary": c.get("summary", c["id"]),
+                "primary": c.get("primary", False),
+            }
+            for c in result.get("items", [])
+        ]
+        return jsonify({"ok": True, "calendars": calendars})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 
 @app.route("/api/contacts/interval", methods=["POST"])

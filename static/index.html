@@ -412,19 +412,63 @@
     </div>
 
     <div class="card">
+      <h2 style="margin-bottom:16px">🗓️ Google Calendar</h2>
+      <div class="conn-row">
+        <div class="conn-dot" id="calendar-dot"></div>
+        <span class="conn-label">Google Calendar</span>
+        <span class="conn-status" id="calendar-status-text">בודק...</span>
+        <button class="btn btn-primary" id="btn-calendar-connect" onclick="connectCalendar()">חבר Google Calendar</button>
+        <button class="btn btn-secondary" id="btn-calendar-disconnect" onclick="disconnectCalendar()" style="display:none">נתק</button>
+      </div>
+      <div class="hint">
+        זה חיבור נפרד לגמרי מ-Gmail — אפשר (ואף מומלץ אם היומנים שלך יושבים בחשבון Google אחר) להתחבר כאן עם
+        חשבון Google שונה מזה ששולח את המיילים, בלי שזה ישפיע על שליחת המיילים הקיימת.
+        לפני החיבור הראשון, באותו פרויקט ב-<a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> שהגדרת ל-Gmail:
+        <ol>
+          <li>אפשר גם את Google Calendar API (לא רק Gmail API)</li>
+          <li>ב-OAuth 2.0 Client ID הקיים → Authorized redirect URIs → הוסף כתובת נוספת: <code id="calendar-redirect-hint"></code></li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="card">
       <h2 style="margin-bottom:16px">🗓️ ניהול זמן אישי</h2>
       <div class="hint" style="margin-bottom:14px">
         משימות שנשלחות לכתובת "שלי" (למטה) יקבלו שאלת הערכת-זמן בוואטסאפ וישובצו אוטומטית ביומן העסקי.
         שעות העבודה לפי יום מוגדרות ומעודכנות רק דרך וואטסאפ (למשל: "שלישי 9 עד 20" או "שבת סגור").
       </div>
+      <div style="margin-bottom:16px;padding:14px 16px;background:var(--grad-light);border-radius:10px;border:1px solid var(--border)">
+        <div style="font-weight:700;font-size:.9rem;color:var(--purple-dark);margin-bottom:8px">🔎 מציאת מזהה צ'אט וואטסאפ ממספר טלפון</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field" style="flex:1;min-width:180px;margin:0">
+            <label>מספר טלפון</label>
+            <input id="phone-to-chatid-input" placeholder="050-1234567" oninput="convertPhoneToChatId()" />
+          </div>
+          <div class="field" style="flex:1;min-width:220px;margin:0">
+            <label>מזהה הצ'אט</label>
+            <input id="phone-to-chatid-result" readonly style="background:#f8f4fc;font-family:monospace" placeholder="972501234567@c.us" />
+          </div>
+          <button class="btn btn-ghost" onclick="usePhoneChatId()">↑ מלא בשדה למטה</button>
+        </div>
+      </div>
       <div class="form-row">
         <div class="field"><label>כתובת המייל "שלי"</label><input id="pt-personal-email" placeholder="office@odcpa.co.il" /></div>
         <div class="field"><label>מזהה צ'אט וואטסאפ אישי</label><input id="pt-personal-chat" placeholder="9725XXXXXXX@c.us" />
-          <div class="hint">הצ'אט מול המערכת שממנו תיענה לשאלות הערכת-זמן — לא צ'אט של לקוח</div>
+          <div class="hint">הצ'אט מול המערכת שממנו תיענה לשאלות הערכת-זמן — לא צ'אט של לקוח. אפשר להשתמש בכלי ההמרה שלמעלה.</div>
         </div>
-        <div class="field"><label>מזהה יומן Google עסקי</label><input id="pt-calendar-id" placeholder="primary" /></div>
       </div>
-      <button class="btn btn-primary" onclick="savePersonalTaskConfig()">שמור</button>
+      <div class="field" style="margin-top:8px">
+        <label>בחירת יומנים</label>
+        <div class="hint" style="margin-bottom:8px">
+          "כתיבת משימות" — היומן היחיד שבו ייווצרו אירועי המשימות (בחירה אחת).
+          "בדיקת פנאי" — כל היומנים שצריך לבדוק שאתה פנוי בהם לפני קביעת משימה (אפשר כמה, כולל יומנים שלא מסומנים לכתיבה).
+        </div>
+        <button class="btn btn-ghost" type="button" onclick="loadCalendarPicker()">🔄 טען רשימת יומנים</button>
+        <div id="calendar-picker" style="margin-top:10px">
+          <div class="hint">יש לחבר קודם את Google Calendar למעלה, ואז ללחוץ "טען רשימת יומנים".</div>
+        </div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:14px" onclick="savePersonalTaskConfig()">שמור</button>
     </div>
   </div>
 
@@ -888,15 +932,21 @@ function statusLabel(s) {
 }
 
 // ── settings ──────────────────────────────────────────────────────────────────
+let selectedWriteCalendar = 'primary';
+let selectedBusyCalendars = [];
+
 async function loadSettings() {
   document.getElementById('webhook-url').value = window.location.origin + '/webhook';
+  document.getElementById('calendar-redirect-hint').textContent = window.location.origin + '/api/calendar/callback';
   const cfg = await (await fetch('/api/config')).json();
   document.getElementById('green-instance').value = cfg.green_instance_id || '';
   document.getElementById('green-token').value    = cfg.green_api_token   || '';
   document.getElementById('pt-personal-email').value = cfg.personal_email || 'office@odcpa.co.il';
   document.getElementById('pt-personal-chat').value  = cfg.personal_whatsapp_chat_id || '';
-  document.getElementById('pt-calendar-id').value    = cfg.business_calendar_id || 'primary';
+  selectedWriteCalendar = cfg.business_calendar_id || 'primary';
+  selectedBusyCalendars = cfg.busy_calendar_ids || [];
   checkGmailStatus();
+  checkCalendarStatus();
   loadContactsStatus();
   const intervalRes = await (await fetch('/api/contacts/interval')).json();
   document.getElementById('contacts-interval').value = intervalRes.mins || 60;
@@ -910,12 +960,37 @@ async function saveGreenConfig() {
   showToast('הגדרות GREEN API נשמרו ✓');
 }
 
+function convertPhoneToChatId() {
+  const raw = document.getElementById('phone-to-chatid-input').value;
+  let digits = (raw || '').replace(/\D/g, '');
+  const resultEl = document.getElementById('phone-to-chatid-result');
+  if (!digits) { resultEl.value = ''; return; }
+  if (!digits.startsWith('972')) {
+    digits = digits.startsWith('0') ? '972' + digits.slice(1) : '972' + digits;
+  }
+  resultEl.value = digits + '@c.us';
+}
+
+function usePhoneChatId() {
+  const result = document.getElementById('phone-to-chatid-result').value;
+  if (!result) { showToast('קודם הזן מספר טלפון', true); return; }
+  document.getElementById('pt-personal-chat').value = result;
+  showToast('הועתק לשדה מזהה הצ׳אט — לא לשכוח ללחוץ שמור ✓');
+}
+
 async function savePersonalTaskConfig() {
+  const writeRadio = document.querySelector('input[name="write-calendar"]:checked');
+  const busyCalendars = Array.from(document.querySelectorAll('.busy-calendar-cb:checked')).map(cb => cb.value);
+  const businessCalendarId = writeRadio ? writeRadio.value : selectedWriteCalendar;
+
   await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
     personal_email:            document.getElementById('pt-personal-email').value.trim(),
     personal_whatsapp_chat_id: document.getElementById('pt-personal-chat').value.trim(),
-    business_calendar_id:      document.getElementById('pt-calendar-id').value.trim(),
+    business_calendar_id:      businessCalendarId,
+    busy_calendar_ids:         busyCalendars,
   })});
+  selectedWriteCalendar = businessCalendarId;
+  selectedBusyCalendars = busyCalendars;
   showToast('הגדרות ניהול הזמן נשמרו ✓');
 }
 
@@ -995,6 +1070,85 @@ async function disconnectGmail() {
   if (!confirm('לנתק Gmail?')) return;
   await fetch('/api/gmail/disconnect', {method:'POST'});
   checkGmailStatus();
+}
+
+// ── Google Calendar connection (separate account from Gmail) ──────────────────
+async function checkCalendarStatus() {
+  const res = await (await fetch('/api/calendar/status')).json();
+  const dot = document.getElementById('calendar-dot');
+  const txt = document.getElementById('calendar-status-text');
+  const btnC = document.getElementById('btn-calendar-connect');
+  const btnD = document.getElementById('btn-calendar-disconnect');
+  if (res.connected) {
+    dot.className='conn-dot ok'; txt.textContent='מחובר';
+    btnC.style.display='none'; btnD.style.display='';
+    loadCalendarPicker();
+  } else {
+    dot.className='conn-dot err'; txt.textContent='לא מחובר';
+    btnC.style.display=''; btnD.style.display='none';
+  }
+}
+
+async function connectCalendar() {
+  const res = await (await fetch('/api/calendar/auth-url')).json();
+  if (res.error) { showToast('שגיאה: '+res.error, true); return; }
+  window.open(res.url, '_blank', 'width=520,height=640');
+  const poll = setInterval(async () => {
+    const s = await (await fetch('/api/calendar/status')).json();
+    if (s.connected) { clearInterval(poll); checkCalendarStatus(); showToast('Google Calendar חובר בהצלחה ✓'); }
+  }, 2000);
+}
+
+async function disconnectCalendar() {
+  if (!confirm('לנתק את Google Calendar?')) return;
+  await fetch('/api/calendar/disconnect', {method:'POST'});
+  checkCalendarStatus();
+  document.getElementById('calendar-picker').innerHTML =
+    '<div class="hint">יש לחבר קודם את Google Calendar למעלה, ואז ללחוץ "טען רשימת יומנים".</div>';
+}
+
+let calendarsCache = [];
+
+async function loadCalendarPicker() {
+  const el = document.getElementById('calendar-picker');
+  el.innerHTML = '<div class="hint">טוען יומנים...</div>';
+  const res = await (await fetch('/api/calendars')).json();
+  if (!res.ok) {
+    el.innerHTML = `<div class="hint">שגיאה בטעינת יומנים: ${esc(res.error||'')} — ודא שחיברת את Google Calendar למעלה.</div>`;
+    return;
+  }
+  calendarsCache = res.calendars || [];
+  renderCalendarPicker();
+}
+
+function renderCalendarPicker() {
+  const el = document.getElementById('calendar-picker');
+  if (!calendarsCache.length) {
+    el.innerHTML = '<div class="hint">לא נמצאו יומנים בחשבון המחובר.</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table style="width:100%;font-size:.88rem;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1.5px solid var(--border)">
+          <th style="text-align:right;padding:6px 4px">יומן</th>
+          <th style="padding:6px 4px">כתיבת משימות</th>
+          <th style="padding:6px 4px">בדיקת פנאי</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${calendarsCache.map(c => `
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:6px 4px">${esc(c.summary)}${c.primary ? ' <span class="hint" style="display:inline">(ראשי)</span>' : ''}</td>
+            <td style="text-align:center;padding:6px 4px">
+              <input type="radio" name="write-calendar" value="${esc(c.id)}" ${c.id === selectedWriteCalendar ? 'checked' : ''}>
+            </td>
+            <td style="text-align:center;padding:6px 4px">
+              <input type="checkbox" class="busy-calendar-cb" value="${esc(c.id)}" ${selectedBusyCalendars.includes(c.id) ? 'checked' : ''}>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
 }
 
 // ── groups ────────────────────────────────────────────────────────────────────
