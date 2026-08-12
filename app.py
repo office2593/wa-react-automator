@@ -981,9 +981,6 @@ threading.Thread(target=_scheduling_catchup_loop, daemon=True).start()
 
 # ── webhook ───────────────────────────────────────────────────────────────────
 
-_TEXT_TYPES = {"textMessage", "extendedTextMessage"}
-
-
 def _handle_personal_text_message(payload, body, msg_data_outer, type_webhook):
     """Handle a plain (non-reaction) WhatsApp text from the user's own chat with
     the bot: either a reply-to-quote answering a pending duration question, or a
@@ -993,10 +990,19 @@ def _handle_personal_text_message(payload, body, msg_data_outer, type_webhook):
     WhatsApp's own "Message Yourself" self-chat, a reply you send is delivered
     by the very same account the GREEN API instance is connected to, so GREEN
     API reports it as outgoingMessageReceived rather than incoming — same
-    reasoning the reaction handler above already applies for is_reaction."""
+    reasoning the reaction handler above already applies for is_reaction.
+
+    GREEN API is also inconsistent about the outer typeMessage for a quoted
+    reply — observed values include "textMessage", "extendedTextMessage", and
+    "quotedMessage" (with the *original* quoted message's own typeMessage/
+    textMessageData nested one level deeper under quotedMessage). We don't gate
+    on that value at all; we just try every known text/stanzaId path, and if
+    nothing is found we log the full payload so the exact shape is visible
+    without needing another blind guess."""
     if type_webhook not in ("incomingMessageReceived", "outgoingMessageReceived"):
         return
-    if msg_data_outer.get("typeMessage", "") not in _TEXT_TYPES:
+    type_message = msg_data_outer.get("typeMessage", "")
+    if type_message == "reactionMessage":
         return
 
     cfg = load_config()
@@ -1005,15 +1011,7 @@ def _handle_personal_text_message(payload, body, msg_data_outer, type_webhook):
     if not personal_chat or chat_id != personal_chat:
         return
 
-    text = (
-        (msg_data_outer.get("textMessageData") or {}).get("textMessage", "")
-        or (msg_data_outer.get("extendedTextMessageData") or {}).get("text", "")
-        or ""
-    ).strip()
-    if not text:
-        return
-
-    # GREEN API isn't consistent about where quotedMessage lives — try both known paths
+    # GREEN API isn't consistent about where quotedMessage lives — try known paths
     # (same reasoning as the dual-path original_text extraction above in webhook()).
     quoted = (
         msg_data_outer.get("quotedMessage")
@@ -1021,6 +1019,19 @@ def _handle_personal_text_message(payload, body, msg_data_outer, type_webhook):
         or {}
     )
     stanza_id = quoted.get("stanzaId", "")
+
+    text = (
+        (msg_data_outer.get("textMessageData") or {}).get("textMessage", "")
+        or (msg_data_outer.get("extendedTextMessageData") or {}).get("text", "")
+        or ""
+    ).strip()
+    if not text:
+        log.warning(
+            "Personal chat message: could not extract text (typeMessage=%r, stanza_id=%r) — full payload: %s",
+            type_message, stanza_id, json.dumps(payload)
+        )
+        return
+    log.info("Personal chat message: typeMessage=%r text=%r stanza_id=%r", type_message, text, stanza_id)
     if stanza_id:
         for t in load_tasks():
             if t.get("duration_question_message_id") == stanza_id and t.get("estimated_minutes") is None:
@@ -1116,7 +1127,7 @@ def twilio_webhook():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     payload = request.get_json(silent=True) or {}
-    log.info("Webhook received: %s", json.dumps(payload)[:500])
+    log.info("Webhook received: %s", json.dumps(payload)[:3000])
 
     body = payload.get("body", {})
     type_ = payload.get("typeWebhook", "")
