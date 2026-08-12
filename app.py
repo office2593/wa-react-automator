@@ -985,10 +985,16 @@ _TEXT_TYPES = {"textMessage", "extendedTextMessage"}
 
 
 def _handle_personal_text_message(payload, body, msg_data_outer, type_webhook):
-    """Handle a plain (non-reaction) incoming WhatsApp text from the user's own
-    chat with the bot: either a reply-to-quote answering a pending duration
-    question, or a work-hours command like 'שלישי 9 עד 20' / 'שבת סגור'."""
-    if type_webhook != "incomingMessageReceived":
+    """Handle a plain (non-reaction) WhatsApp text from the user's own chat with
+    the bot: either a reply-to-quote answering a pending duration question, or a
+    work-hours command like 'שלישי 9 עד 20' / 'שבת סגור'.
+
+    Accepts both directions (not just incoming): if personal_whatsapp_chat_id is
+    WhatsApp's own "Message Yourself" self-chat, a reply you send is delivered
+    by the very same account the GREEN API instance is connected to, so GREEN
+    API reports it as outgoingMessageReceived rather than incoming — same
+    reasoning the reaction handler above already applies for is_reaction."""
+    if type_webhook not in ("incomingMessageReceived", "outgoingMessageReceived"):
         return
     if msg_data_outer.get("typeMessage", "") not in _TEXT_TYPES:
         return
