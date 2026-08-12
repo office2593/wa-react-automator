@@ -474,6 +474,25 @@
       </div>
       <button class="btn btn-primary" style="margin-top:14px" onclick="savePersonalTaskConfig()">שמור</button>
     </div>
+
+    <div class="card">
+      <h2 style="margin-bottom:16px">⏰ שעות פעילות</h2>
+      <div class="hint" style="margin-bottom:14px">
+        אלה השעות שהמערכת מתחשבת בהן בפועל כשהיא משבצת משימות. ניתן לערוך כאן, וגם דרך וואטסאפ (למשל "שלישי 9 עד 20" או "שבת סגור") — שני המקומות מסונכרנים לאותה הגדרה.
+      </div>
+      <table style="width:100%;font-size:.9rem;border-collapse:collapse">
+        <thead>
+          <tr style="border-bottom:1.5px solid var(--border)">
+            <th style="text-align:right;padding:6px 4px">יום</th>
+            <th style="padding:6px 4px">פעיל</th>
+            <th style="padding:6px 4px">משעה</th>
+            <th style="padding:6px 4px">עד שעה</th>
+          </tr>
+        </thead>
+        <tbody id="work-hours-tbody"></tbody>
+      </table>
+      <button class="btn btn-primary" style="margin-top:14px" onclick="saveWorkHours()">שמור שעות עבודה</button>
+    </div>
   </div>
 
 </main>
@@ -951,8 +970,50 @@ async function loadSettings() {
   checkGmailStatus();
   checkCalendarStatus();
   loadContactsStatus();
+  loadWorkHours();
   const intervalRes = await (await fetch('/api/contacts/interval')).json();
   document.getElementById('contacts-interval').value = intervalRes.mins || 60;
+}
+
+const WORK_HOUR_DAYS = [
+  ['sunday', 'ראשון'], ['monday', 'שני'], ['tuesday', 'שלישי'], ['wednesday', 'רביעי'],
+  ['thursday', 'חמישי'], ['friday', 'שישי'], ['saturday', 'שבת'],
+];
+
+async function loadWorkHours() {
+  const workHours = await (await fetch('/api/work-hours')).json();
+  const tbody = document.getElementById('work-hours-tbody');
+  tbody.innerHTML = WORK_HOUR_DAYS.map(([key, label]) => {
+    const d = workHours[key] || {active: false, start: '09:00', end: '18:00'};
+    return `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 4px">${label}</td>
+        <td style="text-align:center;padding:6px 4px">
+          <input type="checkbox" id="wh-active-${key}" ${d.active ? 'checked' : ''}>
+        </td>
+        <td style="text-align:center;padding:6px 4px">
+          <input type="time" id="wh-start-${key}" value="${esc(d.start)}">
+        </td>
+        <td style="text-align:center;padding:6px 4px">
+          <input type="time" id="wh-end-${key}" value="${esc(d.end)}">
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+async function saveWorkHours() {
+  const payload = {};
+  for (const [key] of WORK_HOUR_DAYS) {
+    payload[key] = {
+      active: document.getElementById(`wh-active-${key}`).checked,
+      start:  document.getElementById(`wh-start-${key}`).value,
+      end:    document.getElementById(`wh-end-${key}`).value,
+    };
+  }
+  await fetch('/api/work-hours', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+  });
+  showToast('שעות הפעילות נשמרו ✓');
 }
 
 async function saveGreenConfig() {

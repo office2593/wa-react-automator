@@ -827,9 +827,12 @@ def _wsjf_score(task: dict, now: datetime) -> float:
 
 def try_schedule_pending_tasks():
     """Schedule every 'unscheduled' personal task (estimate confirmed, no calendar
-    slot yet) into the business calendar: WSJF order, best-fit placement into the
-    smallest free window that still fits. Runs immediately after an estimate is
-    confirmed, and again periodically to catch tasks that had no slot back then."""
+    slot yet) into the business calendar: WSJF order, placed into the earliest
+    free window (chronologically) that still fits its duration — not the
+    tightest-fitting one, so a task never skips over real free time today/
+    tomorrow just to leave room for a hypothetically bigger task later. Runs
+    immediately after an estimate is confirmed, and again periodically to catch
+    tasks that had no slot back then."""
     cfg = load_config()
     chat_id = cfg.get("personal_whatsapp_chat_id")
     if not chat_id:
@@ -859,7 +862,7 @@ def try_schedule_pending_tasks():
         candidates = [(i, w) for i, w in enumerate(windows) if (w[1] - w[0]) >= duration]
         if not candidates:
             continue
-        idx, (w_start, w_end) = min(candidates, key=lambda iw: iw[1][1] - iw[1][0])
+        idx, (w_start, w_end) = min(candidates, key=lambda iw: iw[1][0])
         event_start, event_end = w_start, w_start + duration
 
         try:
@@ -1411,6 +1414,32 @@ def save_config():
     cfg.update(data)
     save_config_data(cfg)
     return jsonify({"ok": True})
+
+
+@app.route("/api/work-hours", methods=["GET"])
+def get_work_hours_api():
+    """Always returns all 7 days merged with defaults — same values the
+    scheduling engine and the WhatsApp work-hours commands actually use, so the
+    dashboard never shows a day as blank just because it was never touched."""
+    return jsonify(get_work_hours())
+
+
+@app.route("/api/work-hours", methods=["POST"])
+def save_work_hours_api():
+    data = request.get_json() or {}
+    cfg = load_config()
+    work_hours = get_work_hours(cfg)
+    for day, entry in data.items():
+        if day not in work_hours or not isinstance(entry, dict):
+            continue
+        work_hours[day] = {
+            "active": bool(entry.get("active", work_hours[day]["active"])),
+            "start": entry.get("start") or work_hours[day]["start"],
+            "end": entry.get("end") or work_hours[day]["end"],
+        }
+    cfg["work_hours"] = work_hours
+    save_config_data(cfg)
+    return jsonify({"ok": True, "work_hours": work_hours})
 
 
 _railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
