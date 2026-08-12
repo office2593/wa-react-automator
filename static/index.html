@@ -410,6 +410,22 @@
         </ol>
       </div>
     </div>
+
+    <div class="card">
+      <h2 style="margin-bottom:16px">🗓️ ניהול זמן אישי</h2>
+      <div class="hint" style="margin-bottom:14px">
+        משימות שנשלחות לכתובת "שלי" (למטה) יקבלו שאלת הערכת-זמן בוואטסאפ וישובצו אוטומטית ביומן העסקי.
+        שעות העבודה לפי יום מוגדרות ומעודכנות רק דרך וואטסאפ (למשל: "שלישי 9 עד 20" או "שבת סגור").
+      </div>
+      <div class="form-row">
+        <div class="field"><label>כתובת המייל "שלי"</label><input id="pt-personal-email" placeholder="office@odcpa.co.il" /></div>
+        <div class="field"><label>מזהה צ'אט וואטסאפ אישי</label><input id="pt-personal-chat" placeholder="9725XXXXXXX@c.us" />
+          <div class="hint">הצ'אט מול המערכת שממנו תיענה לשאלות הערכת-זמן — לא צ'אט של לקוח</div>
+        </div>
+        <div class="field"><label>מזהה יומן Google עסקי</label><input id="pt-calendar-id" placeholder="primary" /></div>
+      </div>
+      <button class="btn btn-primary" onclick="savePersonalTaskConfig()">שמור</button>
+    </div>
   </div>
 
 </main>
@@ -877,6 +893,9 @@ async function loadSettings() {
   const cfg = await (await fetch('/api/config')).json();
   document.getElementById('green-instance').value = cfg.green_instance_id || '';
   document.getElementById('green-token').value    = cfg.green_api_token   || '';
+  document.getElementById('pt-personal-email').value = cfg.personal_email || 'office@odcpa.co.il';
+  document.getElementById('pt-personal-chat').value  = cfg.personal_whatsapp_chat_id || '';
+  document.getElementById('pt-calendar-id').value    = cfg.business_calendar_id || 'primary';
   checkGmailStatus();
   loadContactsStatus();
   const intervalRes = await (await fetch('/api/contacts/interval')).json();
@@ -889,6 +908,15 @@ async function saveGreenConfig() {
     green_api_token:   document.getElementById('green-token').value.trim(),
   })});
   showToast('הגדרות GREEN API נשמרו ✓');
+}
+
+async function savePersonalTaskConfig() {
+  await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+    personal_email:            document.getElementById('pt-personal-email').value.trim(),
+    personal_whatsapp_chat_id: document.getElementById('pt-personal-chat').value.trim(),
+    business_calendar_id:      document.getElementById('pt-calendar-id').value.trim(),
+  })});
+  showToast('הגדרות ניהול הזמן נשמרו ✓');
 }
 
 async function saveContactsInterval() {

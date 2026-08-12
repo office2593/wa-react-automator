@@ -9,7 +9,8 @@ import re
 import secrets
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
@@ -62,9 +63,34 @@ BUTTON_MSGS_FILE = DATA_DIR / "button_messages.json"
 CONFIG_FILE = DATA_DIR / "config.json"
 TOKEN_FILE  = DATA_DIR / "gmail_token.json"
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/calendar",
+]
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# ── personal task scheduling: defaults ──────────────────────────────────────────
+
+DEFAULT_WORK_HOURS = {
+    "sunday":    {"active": True,  "start": "09:00", "end": "18:00"},
+    "monday":    {"active": True,  "start": "09:00", "end": "18:00"},
+    "tuesday":   {"active": True,  "start": "09:00", "end": "18:00"},
+    "wednesday": {"active": True,  "start": "09:00", "end": "18:00"},
+    "thursday":  {"active": True,  "start": "09:00", "end": "18:00"},
+    "friday":    {"active": False, "start": "09:00", "end": "14:00"},
+    "saturday":  {"active": False, "start": "09:00", "end": "18:00"},
+}
+
+DAY_NAMES_HE = {
+    "ראשון": "sunday", "שני": "monday", "שלישי": "tuesday",
+    "רביעי": "wednesday", "חמישי": "thursday", "שישי": "friday", "שבת": "saturday",
+}
+
+# Python's date.weekday(): Monday=0 ... Sunday=6
+WEEKDAY_TO_KEY = {6: "sunday", 0: "monday", 1: "tuesday", 2: "wednesday", 3: "thursday", 4: "friday", 5: "saturday"}
+
+SCHEDULING_LOOKAHEAD_DAYS = 14
 
 
 # ── database helpers ──────────────────────────────────────────────────────────
@@ -167,6 +193,21 @@ def save_config_data(data):
         db_set("config", data)
     else:
         save_json(CONFIG_FILE, data)
+
+
+def get_work_hours(cfg=None):
+    cfg = cfg if cfg is not None else load_config()
+    configured = cfg.get("work_hours") or {}
+    merged = {k: dict(v) for k, v in DEFAULT_WORK_HOURS.items()}
+    for day, entry in configured.items():
+        if day in merged:
+            merged[day].update(entry)
+    return merged
+
+
+def get_timezone_name(cfg=None):
+    cfg = cfg if cfg is not None else load_config()
+    return cfg.get("timezone") or "Asia/Jerusalem"
 
 
 def load_log():
@@ -304,6 +345,23 @@ def get_gmail_service():
         else:
             raise RuntimeError("Gmail not authorized — please connect via the dashboard")
     return build("gmail", "v1", credentials=creds)
+
+
+def get_calendar_service():
+    """Reuses the same OAuth token as Gmail (SCOPES now includes calendar access)."""
+    if not GOOGLE_LIBS:
+        raise RuntimeError("google-auth libraries not installed")
+    load_gmail_token()
+    creds = None
+    if TOKEN_FILE.exists():
+        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            save_gmail_token(json.loads(creds.to_json()))
+        else:
+            raise RuntimeError("Google account not authorized — please connect via the dashboard")
+    return build("calendar", "v3", credentials=creds)
 
 
 def build_email_html(body_text: str, complete_url: str = "") -> str:
@@ -448,6 +506,27 @@ def green_api_url(config, method):
     )
 
 
+def green_api_send_message(chat_id: str, text: str) -> dict:
+    """Send a WhatsApp text message via GREEN API (same instance/token used to
+    receive the webhook — no template restrictions, unlike the Twilio channel
+    used for the monthly group broadcasts). Returns the API response, which
+    includes idMessage on success — used to match future quoted replies."""
+    if not chat_id:
+        return {}
+    cfg = load_config()
+    if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
+        log.warning("GREEN API not configured — cannot send message to %s", chat_id)
+        return {}
+    try:
+        url = green_api_url(cfg, "sendMessage")
+        r = http_requests.post(url, json={"chatId": chat_id, "message": text}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        log.error("Failed to send GREEN API message to %s: %s", chat_id, e)
+        return {}
+
+
 def fetch_and_save_contacts() -> dict:
     """Fetch all contacts from GREEN API and save to DB. Returns phone→name dict."""
     try:
@@ -541,6 +620,223 @@ def get_contact_name(chat_id: str) -> str:
     log.info("get_contact_name chatId=%s found=%r (total contacts: %d, sample keys: %s)",
              chat_id, name, len(contacts), list(contacts.keys())[:3])
     return name
+
+
+# ── personal task scheduling: text parsers ──────────────────────────────────────
+
+_DURATION_WORDS = {
+    "רבע שעה": 15, "חצי שעה": 30, "שלושת רבעי שעה": 45,
+    "שעה וחצי": 90, "שעתיים": 120, "שעה": 60,
+}
+
+
+def parse_duration_minutes(text: str):
+    """Parse a free-text WhatsApp reply into a minute count, or None if not understood."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    for phrase, minutes in sorted(_DURATION_WORDS.items(), key=lambda kv: -len(kv[0])):
+        if phrase in t:
+            return minutes
+    m = re.search(r'(\d+)\s*(שע(ות)?|hour|hr)', t)
+    if m:
+        return int(m.group(1)) * 60
+    m = re.search(r'(\d+)', t)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+_WORK_HOURS_RE = re.compile(
+    r'(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)\s+'
+    r'(?:(\d{1,2}(?::\d{2})?)\s*(?:עד|-|–)\s*(\d{1,2}(?::\d{2})?)|(סגור|לא עובד))'
+)
+
+
+def _normalize_hhmm(s: str) -> str:
+    s = s.strip()
+    if ":" in s:
+        h, m = s.split(":")
+        return f"{int(h):02d}:{int(m):02d}"
+    return f"{int(s):02d}:00"
+
+
+def parse_work_hours_command(text: str):
+    """Parse a Hebrew day+hours command like 'שלישי 9 עד 20' or 'שבת סגור'.
+    Returns (day_key, updated_entry) or None if the text doesn't match."""
+    m = _WORK_HOURS_RE.search((text or "").strip())
+    if not m:
+        return None
+    day_key = DAY_NAMES_HE[m.group(1)]
+    if m.group(4):
+        return day_key, {"active": False, "start": "09:00", "end": "18:00"}
+    return day_key, {"active": True, "start": _normalize_hhmm(m.group(2)), "end": _normalize_hhmm(m.group(3))}
+
+
+# ── personal task scheduling: engine ─────────────────────────────────────────────
+
+def _update_task_fields(task_id: str, **fields):
+    tasks = load_tasks()
+    for i, t in enumerate(tasks):
+        if t["id"] == task_id:
+            t.update(fields)
+            tasks[i] = t
+            save_tasks(tasks)
+            return t
+    return None
+
+
+def _delete_calendar_event(event_id: str):
+    if not event_id:
+        return
+    cfg = load_config()
+    calendar_id = cfg.get("business_calendar_id") or "primary"
+    try:
+        service = get_calendar_service()
+        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+    except Exception as e:
+        log.warning("Could not delete calendar event %s: %s", event_id, e)
+
+
+def _compute_free_windows(cfg, days_ahead=SCHEDULING_LOOKAHEAD_DAYS):
+    """Free windows (tz-aware datetime pairs) within configured work hours over the
+    next `days_ahead` days, with existing Google Calendar busy blocks subtracted."""
+    tz = ZoneInfo(get_timezone_name(cfg))
+    now = datetime.now(tz)
+    work_hours = get_work_hours(cfg)
+    calendar_id = cfg.get("business_calendar_id") or "primary"
+
+    range_start = now
+    range_end = (now + timedelta(days=days_ahead)).replace(hour=23, minute=59, second=59, microsecond=0)
+
+    service = get_calendar_service()
+    fb = service.freebusy().query(body={
+        "timeMin": range_start.isoformat(),
+        "timeMax": range_end.isoformat(),
+        "timeZone": get_timezone_name(cfg),
+        "items": [{"id": calendar_id}],
+    }).execute()
+    busy_raw = fb.get("calendars", {}).get(calendar_id, {}).get("busy", [])
+    busy = [
+        (datetime.fromisoformat(b["start"]).astimezone(tz), datetime.fromisoformat(b["end"]).astimezone(tz))
+        for b in busy_raw
+    ]
+
+    windows = []
+    for day_offset in range(days_ahead + 1):
+        day = (now + timedelta(days=day_offset)).date()
+        hours = work_hours.get(WEEKDAY_TO_KEY[day.weekday()], {})
+        if not hours.get("active"):
+            continue
+        start_h, start_m = map(int, hours["start"].split(":"))
+        end_h, end_m = map(int, hours["end"].split(":"))
+        day_start = datetime(day.year, day.month, day.day, start_h, start_m, tzinfo=tz)
+        day_end   = datetime(day.year, day.month, day.day, end_h, end_m, tzinfo=tz)
+        if day_start < now:
+            day_start = now
+        if day_end <= day_start:
+            continue
+
+        free_segments = [(day_start, day_end)]
+        for b_start, b_end in busy:
+            if b_end <= day_start or b_start >= day_end:
+                continue
+            new_segments = []
+            for seg_start, seg_end in free_segments:
+                if b_end <= seg_start or b_start >= seg_end:
+                    new_segments.append((seg_start, seg_end))
+                    continue
+                if b_start > seg_start:
+                    new_segments.append((seg_start, b_start))
+                if b_end < seg_end:
+                    new_segments.append((b_end, seg_end))
+            free_segments = new_segments
+        windows.extend(free_segments)
+
+    return windows
+
+
+def _wsjf_score(task: dict, now: datetime) -> float:
+    """Weighted-Shortest-Job-First: urgency (days waited) / estimated duration.
+    Short fresh tasks can outrank a big old one, but an old task's score keeps
+    climbing until it eventually wins — it never gets starved forever."""
+    created = datetime.fromisoformat(task["time"])
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    age_days = max((now - created).total_seconds() / 86400.0, 0.01)
+    duration = max(task.get("estimated_minutes") or 1, 1)
+    return age_days / duration
+
+
+def try_schedule_pending_tasks():
+    """Schedule every 'unscheduled' personal task (estimate confirmed, no calendar
+    slot yet) into the business calendar: WSJF order, best-fit placement into the
+    smallest free window that still fits. Runs immediately after an estimate is
+    confirmed, and again periodically to catch tasks that had no slot back then."""
+    cfg = load_config()
+    chat_id = cfg.get("personal_whatsapp_chat_id")
+    if not chat_id:
+        return
+
+    tasks = load_tasks()
+    pending = [t for t in tasks if t.get("schedule_status") == "unscheduled"]
+    if not pending:
+        return
+
+    try:
+        windows = _compute_free_windows(cfg)
+    except Exception as e:
+        log.error("Could not compute free calendar windows: %s", e)
+        return
+
+    tz = ZoneInfo(get_timezone_name(cfg))
+    now = datetime.now(tz)
+    pending.sort(key=lambda t: _wsjf_score(t, now), reverse=True)
+
+    calendar_id = cfg.get("business_calendar_id") or "primary"
+    service = get_calendar_service()
+    scheduled_summaries = []
+
+    for task in pending:
+        duration = timedelta(minutes=task.get("estimated_minutes") or 30)
+        candidates = [(i, w) for i, w in enumerate(windows) if (w[1] - w[0]) >= duration]
+        if not candidates:
+            continue
+        idx, (w_start, w_end) = min(candidates, key=lambda iw: iw[1][1] - iw[1][0])
+        event_start, event_end = w_start, w_start + duration
+
+        try:
+            event = service.events().insert(calendarId=calendar_id, body={
+                "summary": f"📋 משימה: {(task.get('original_text') or '')[:60]}",
+                "description": f"נוצר אוטומטית ממערכת המשימות. task_id={task['id']}",
+                "start": {"dateTime": event_start.isoformat()},
+                "end": {"dateTime": event_end.isoformat()},
+                "colorId": "5",
+                "extendedProperties": {"private": {"task_id": task["id"]}},
+            }).execute()
+        except Exception as e:
+            log.error("Failed to create calendar event for task %s: %s", task["id"], e)
+            continue
+
+        remaining = []
+        if event_start > w_start:
+            remaining.append((w_start, event_start))
+        if event_end < w_end:
+            remaining.append((event_end, w_end))
+        windows[idx:idx + 1] = remaining
+
+        for i, t in enumerate(tasks):
+            if t["id"] == task["id"]:
+                t["schedule_status"] = "scheduled"
+                t["scheduled_at"] = event_start.isoformat()
+                t["calendar_event_id"] = event.get("id")
+                tasks[i] = t
+                break
+        scheduled_summaries.append(f"{event_start.strftime('%d/%m %H:%M')} — {(task.get('original_text') or '')[:40]}")
+
+    save_tasks(tasks)
+    if scheduled_summaries:
+        green_api_send_message(chat_id, "תוזמנו לך ביומן:\n" + "\n".join(scheduled_summaries))
 
 
 # background contact refresh (every hour)
@@ -638,7 +934,80 @@ def _scheduled_send_loop():
 threading.Thread(target=_scheduled_send_loop, daemon=True).start()
 
 
+def _scheduling_catchup_loop():
+    """Retries scheduling for personal tasks left 'unscheduled' (e.g. no free
+    slot was available last time) — the calendar may have opened up since."""
+    while True:
+        _time.sleep(60 * 60)
+        try:
+            try_schedule_pending_tasks()
+        except Exception as e:
+            log.error("Scheduling catch-up error: %s", e)
+
+threading.Thread(target=_scheduling_catchup_loop, daemon=True).start()
+
+
 # ── webhook ───────────────────────────────────────────────────────────────────
+
+_TEXT_TYPES = {"textMessage", "extendedTextMessage"}
+
+
+def _handle_personal_text_message(payload, body, msg_data_outer, type_webhook):
+    """Handle a plain (non-reaction) incoming WhatsApp text from the user's own
+    chat with the bot: either a reply-to-quote answering a pending duration
+    question, or a work-hours command like 'שלישי 9 עד 20' / 'שבת סגור'."""
+    if type_webhook != "incomingMessageReceived":
+        return
+    if msg_data_outer.get("typeMessage", "") not in _TEXT_TYPES:
+        return
+
+    cfg = load_config()
+    personal_chat = cfg.get("personal_whatsapp_chat_id", "")
+    chat_id = payload.get("senderData", {}).get("chatId", "") or body.get("senderData", {}).get("chatId", "")
+    if not personal_chat or chat_id != personal_chat:
+        return
+
+    text = (
+        (msg_data_outer.get("textMessageData") or {}).get("textMessage", "")
+        or (msg_data_outer.get("extendedTextMessageData") or {}).get("text", "")
+        or ""
+    ).strip()
+    if not text:
+        return
+
+    # GREEN API isn't consistent about where quotedMessage lives — try both known paths
+    # (same reasoning as the dual-path original_text extraction above in webhook()).
+    quoted = (
+        msg_data_outer.get("quotedMessage")
+        or (msg_data_outer.get("extendedTextMessageData") or {}).get("quotedMessage")
+        or {}
+    )
+    stanza_id = quoted.get("stanzaId", "")
+    if stanza_id:
+        for t in load_tasks():
+            if t.get("duration_question_message_id") == stanza_id and t.get("estimated_minutes") is None:
+                minutes = parse_duration_minutes(text)
+                if minutes is None:
+                    green_api_send_message(chat_id, "לא הבנתי — תוכל לתת מספר דקות? (למשל 30)")
+                    return
+                _update_task_fields(t["id"], estimated_minutes=minutes, schedule_status="unscheduled")
+                green_api_send_message(chat_id, f"נרשם: {minutes} דקות. אני אשבץ לך זמן ואעדכן.")
+                try:
+                    try_schedule_pending_tasks()
+                except Exception as e:
+                    log.error("Scheduling after estimate failed: %s", e)
+                return
+
+    wh = parse_work_hours_command(text)
+    if wh:
+        day_key, entry = wh
+        work_hours = get_work_hours(cfg)
+        work_hours[day_key] = entry
+        cfg["work_hours"] = work_hours
+        save_config_data(cfg)
+        label = "סגור" if not entry["active"] else f"{entry['start']}–{entry['end']}"
+        green_api_send_message(chat_id, f"עודכן: {label}")
+
 
 def find_button_by_label(label: str):
     """Search all button-message drafts for a button matching the given label.
@@ -725,6 +1094,10 @@ def webhook():
             and type_message == "reactionMessage")
     )
     if not is_reaction:
+        try:
+            _handle_personal_text_message(payload, body, msg_data_outer, type_)
+        except Exception as e:
+            log.error("Error handling personal text message: %s", e)
         return jsonify({"ok": True}), 200
 
     # extract reaction emoji (try all known paths)
@@ -780,6 +1153,10 @@ def webhook():
         })
         return jsonify({"ok": True}), 200
 
+    cfg = load_config()
+    personal_email = cfg.get("personal_email", "office@odcpa.co.il")
+    personal_chat  = cfg.get("personal_whatsapp_chat_id", "")
+
     errors = []
     for rule in matched:
         to_email = rule.get("email_to", "")
@@ -797,7 +1174,7 @@ def webhook():
                 "sender_name": sender_name, "chat": chat_id, "original_text": orig_text,
                 "rule_name": rule.get("name", ""), "email_to": to_email, "status": "sent"
             })
-            append_task({
+            task_record = {
                 "id": task_id,
                 "time": timestamp, "emoji": reaction,
                 "sender_name": sender_name or sender, "chat": chat_id,
@@ -806,7 +1183,22 @@ def webhook():
                 "subject": subject, "body": body_txt,
                 "status": "pending", "completed_at": None,
                 "complete_token": complete_token
-            })
+            }
+            is_mine = (to_email == personal_email)
+            if is_mine:
+                task_record.update({
+                    "schedule_status": "awaiting_estimate",
+                    "estimated_minutes": None,
+                    "duration_question_message_id": None,
+                    "scheduled_at": None,
+                    "calendar_event_id": None,
+                })
+            append_task(task_record)
+            if is_mine and personal_chat:
+                q_text = f"נרשם: '{(orig_text or subject)[:120]}'. כמה זמן זה ייקח? (למשל: 15 / חצי שעה / שעה)"
+                resp = green_api_send_message(personal_chat, q_text)
+                if resp.get("idMessage"):
+                    _update_task_fields(task_id, duration_question_message_id=resp["idMessage"])
             log.info("Email sent to %s for reaction %s", to_email, reaction)
         except Exception as e:
             errors.append(str(e))
@@ -876,6 +1268,8 @@ def update_task(tid):
             if "status" in body:
                 t["status"] = body["status"]
                 t["completed_at"] = datetime.utcnow().isoformat() if body["status"] == "done" else None
+                if body["status"] == "done" and t.get("calendar_event_id"):
+                    _delete_calendar_event(t["calendar_event_id"])
             tasks[i] = t
             save_tasks(tasks)
             return jsonify(t)
@@ -918,6 +1312,8 @@ def task_done(task_id):
                                      "המשימה כבר סומנה כבוצעה בעבר. תודה רבה!")
             t["status"] = "done"
             t["completed_at"] = datetime.utcnow().isoformat()
+            if t.get("calendar_event_id"):
+                _delete_calendar_event(t["calendar_event_id"])
             tasks[i] = t
             save_tasks(tasks)
             return _confirm_page("המשימה סומנה כבוצעה ✓", "תודה! העדכון נשמר במערכת ואורן יראה אותו בפאנל הניהול.")
