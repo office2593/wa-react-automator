@@ -9,7 +9,7 @@ import re
 import secrets
 import base64
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from zoneinfo import ZoneInfo
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -24,6 +24,7 @@ try:
     from google_auth_oauthlib.flow import Flow
     from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
     GOOGLE_LIBS = True
 except ImportError:
     GOOGLE_LIBS = False
@@ -362,6 +363,86 @@ def generate_email_content(sender_name: str, message: str, employee_name: str) -
         }
 
 
+def suggest_duration_minutes(task_text: str, personal_email: str):
+    """Suggests a duration for a new personal task, based on similar past tasks
+    with a confirmed estimate. Returns (minutes, reason) or (None, None) if
+    there isn't enough history yet, nothing similar was found, or the AI call
+    failed — callers should fall back to the plain duration question either way."""
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key or not OPENAI_AVAILABLE:
+        return None, None
+
+    history = [
+        t for t in load_tasks()
+        if t.get("email_to") == personal_email and t.get("estimated_minutes") is not None
+    ]
+    if len(history) < 3:
+        return None, None
+
+    examples = "\n".join(
+        f'- "{(t.get("original_text") or "")[:80]}" → {t["estimated_minutes"]} דקות'
+        for t in history[:20]
+    )
+    prompt = (
+        f'אלה משימות עבר עם משך הזמן שאושר בפועל על ידי המשתמש:\n{examples}\n\n'
+        f'המשימה החדשה: "{task_text}"\n\n'
+        f'אם אחת מהדוגמאות דומה מספיק כדי להעריך בביטחון סביר את משך הזמן למשימה החדשה, '
+        f'החזר JSON {{"minutes": מספר, "reason": "נימוק קצר בעברית, עד 10 מילים"}}. '
+        f'אם אין דמיון מספק — החזר {{"minutes": null, "reason": null}}. החזר JSON בלבד, בלי טקסט נוסף.'
+    )
+    try:
+        client = _OpenAI(api_key=api_key)
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=120,
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}]
+        )
+        data = json.loads(resp.choices[0].message.content.strip())
+        minutes = data.get("minutes")
+        if isinstance(minutes, (int, float)) and minutes > 0:
+            return int(minutes), (data.get("reason") or "")
+        return None, None
+    except Exception as e:
+        log.warning("AI duration suggestion failed: %s", e)
+        return None, None
+
+
+def parse_negotiation_action(task_text: str, user_reply: str):
+    """Uses OpenAI to interpret a free-text reply to an already-scheduled
+    task's confirmation message. Returns a dict {"action": "confirm"|
+    "reschedule"|"cancel", "when_iso": "<ISO datetime>"|None, "confident": bool}
+    or None if the AI call failed — callers should ask the user to clarify."""
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key or not OPENAI_AVAILABLE:
+        return None
+    now_str = datetime.now(ZoneInfo(get_timezone_name())).isoformat()
+    prompt = (
+        f'המשימה "{task_text}" מתוזמנת ביומן. המשתמש כתב בתגובה: "{user_reply}"\n'
+        f'הזמן הנוכחי הוא: {now_str}\n\n'
+        f'החזר JSON בלבד: {{"action": "confirm"|"reschedule"|"cancel", '
+        f'"when_iso": "YYYY-MM-DDTHH:MM:SS" או null, "confident": true/false}}.\n'
+        f'action="confirm" אם המשתמש רק מאשר או לא רוצה לשנות כלום.\n'
+        f'action="cancel" אם המשתמש רוצה לבטל/למחוק את המשימה מהיומן.\n'
+        f'action="reschedule" אם המשתמש רוצה זמן אחר — when_iso הוא הפירוש שלך לזמן החדש (יחסית לזמן הנוכחי).\n'
+        f'confident=true רק אם אתה בטוח מאוד בפירוש של when_iso (למשל תאריך/שעה מפורשים); '
+        f'אם הניסוח מעורפל (כמו "מחר בבוקר") — עדיין תן את הפירוש הכי סביר ב-when_iso אבל עם confident=false.\n'
+        f'החזר JSON בלבד, בלי טקסט נוסף.'
+    )
+    try:
+        client = _OpenAI(api_key=api_key)
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=150,
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return json.loads(resp.choices[0].message.content.strip())
+    except Exception as e:
+        log.warning("Negotiation parse failed: %s", e)
+        return None
+
+
 # ── Gmail send ────────────────────────────────────────────────────────────────
 
 def get_gmail_service():
@@ -683,6 +764,15 @@ _DURATION_WORDS = {
     "שעה וחצי": 90, "שעתיים": 120, "שעה": 60,
 }
 
+_AFFIRMATIVE_WORDS = {"כן", "מאשר", "מאשרת", "אישור", "אוקי", "אוקיי", "בסדר", "yes", "ok", "okay"}
+
+
+def _is_affirmative(text: str) -> bool:
+    """True if the reply *starts with* an affirmative word — so 'כן' and
+    'כן עד יום שלישי' (confirm + deadline together) both count."""
+    words = (text or "").strip().lower().split()
+    return bool(words) and words[0] in _AFFIRMATIVE_WORDS
+
 
 def parse_duration_minutes(text: str):
     """Parse a free-text WhatsApp reply into a minute count, or None if not understood."""
@@ -698,6 +788,47 @@ def parse_duration_minutes(text: str):
     m = re.search(r'(\d+)', t)
     if m:
         return int(m.group(1))
+    return None
+
+
+_KEY_TO_WEEKDAY = {v: k for k, v in WEEKDAY_TO_KEY.items()}
+_DEADLINE_DAY_RE = re.compile(r'(?:עד|דדליין)\s+(?:יום\s+)?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)')
+_DEADLINE_DATE_RE = re.compile(r'(?:עד|דדליין)\s+(?:ה-)?(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?')
+
+
+def parse_deadline(text: str, today: date = None):
+    """Parse a free-text deadline phrase like 'עד יום שלישי' or 'עד 20/8' into a
+    date — always the NEXT such day/date strictly after today (never today or
+    in the past), since 'עד יום שלישי' said on a Tuesday means next Tuesday."""
+    text = (text or "").strip()
+    if today is None:
+        today = datetime.now(ZoneInfo(get_timezone_name())).date()
+
+    m = _DEADLINE_DATE_RE.search(text)
+    if m:
+        day, month = int(m.group(1)), int(m.group(2))
+        year = int(m.group(3)) if m.group(3) else today.year
+        if year < 100:
+            year += 2000
+        try:
+            d = date(year, month, day)
+        except ValueError:
+            return None
+        if d < today:
+            try:
+                d = date(year + 1, month, day)
+            except ValueError:
+                return None
+        return d
+
+    m = _DEADLINE_DAY_RE.search(text)
+    if m:
+        target_weekday = _KEY_TO_WEEKDAY[DAY_NAMES_HE[m.group(1)]]
+        days_ahead = (target_weekday - today.weekday()) % 7
+        if days_ahead == 0:
+            days_ahead = 7
+        return today + timedelta(days=days_ahead)
+
     return None
 
 
@@ -750,6 +881,21 @@ def _delete_calendar_event(event_id: str):
         service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
     except Exception as e:
         log.warning("Could not delete calendar event %s: %s", event_id, e)
+
+
+def _move_scheduled_task(task: dict, new_start: datetime):
+    """Moves an already-scheduled task's calendar event to a new start time
+    (keeping its original duration), and updates scheduled_at to match."""
+    cfg = load_config()
+    calendar_id = cfg.get("business_calendar_id") or "primary"
+    duration = timedelta(minutes=task.get("estimated_minutes") or 30)
+    new_end = new_start + duration
+    service = get_calendar_write_service()
+    service.events().patch(calendarId=calendar_id, eventId=task["calendar_event_id"], body={
+        "start": {"dateTime": new_start.isoformat()},
+        "end": {"dateTime": new_end.isoformat()},
+    }).execute()
+    _update_task_fields(task["id"], scheduled_at=new_start.isoformat())
 
 
 def _compute_free_windows(cfg, days_ahead=SCHEDULING_LOOKAHEAD_DAYS):
@@ -813,16 +959,33 @@ def _compute_free_windows(cfg, days_ahead=SCHEDULING_LOOKAHEAD_DAYS):
     return windows
 
 
+DEADLINE_URGENCY_K = 7.0    # tuning knob: urgency contribution == this when 1 day remains
+DEADLINE_URGENCY_DUE = 30.0  # fixed high urgency once the deadline is today or already passed
+
+
+def _deadline_urgency(task: dict, now: datetime) -> float:
+    deadline_str = task.get("deadline")
+    if not deadline_str:
+        return 0.0
+    deadline_d = date.fromisoformat(deadline_str)
+    days_left = (deadline_d - now.date()).days
+    if days_left <= 0:
+        return DEADLINE_URGENCY_DUE
+    return DEADLINE_URGENCY_K / days_left
+
+
 def _wsjf_score(task: dict, now: datetime) -> float:
-    """Weighted-Shortest-Job-First: urgency (days waited) / estimated duration.
-    Short fresh tasks can outrank a big old one, but an old task's score keeps
-    climbing until it eventually wins — it never gets starved forever."""
+    """Weighted-Shortest-Job-First: urgency / estimated duration. Urgency = days
+    waited (short fresh tasks can outrank a big old one, but an old task's score
+    keeps climbing until it eventually wins — never starved forever) PLUS a
+    deadline-proximity term that spikes as a deadline approaches or passes."""
     created = datetime.fromisoformat(task["time"])
     if created.tzinfo is None:
         created = created.replace(tzinfo=timezone.utc)
     age_days = max((now - created).total_seconds() / 86400.0, 0.01)
     duration = max(task.get("estimated_minutes") or 1, 1)
-    return age_days / duration
+    urgency = age_days + _deadline_urgency(task, now)
+    return urgency / duration
 
 
 def try_schedule_pending_tasks():
@@ -855,7 +1018,6 @@ def try_schedule_pending_tasks():
 
     calendar_id = cfg.get("business_calendar_id") or "primary"
     service = get_calendar_write_service()
-    scheduled_summaries = []
 
     for task in pending:
         duration = timedelta(minutes=task.get("estimated_minutes") or 30)
@@ -885,18 +1047,21 @@ def try_schedule_pending_tasks():
             remaining.append((event_end, w_end))
         windows[idx:idx + 1] = remaining
 
+        # Sent per-task (not merged) so each confirmation has its own quotable
+        # message id — that's the entry point for negotiating this one task later.
+        summary_text = f"תוזמן לך ביומן: {event_start.strftime('%d/%m %H:%M')} — {(task.get('original_text') or '')[:60]}"
+        confirm_resp = green_api_send_message(chat_id, summary_text)
+
         for i, t in enumerate(tasks):
             if t["id"] == task["id"]:
                 t["schedule_status"] = "scheduled"
                 t["scheduled_at"] = event_start.isoformat()
                 t["calendar_event_id"] = event.get("id")
+                t["schedule_confirmation_message_id"] = confirm_resp.get("idMessage")
                 tasks[i] = t
                 break
-        scheduled_summaries.append(f"{event_start.strftime('%d/%m %H:%M')} — {(task.get('original_text') or '')[:40]}")
 
     save_tasks(tasks)
-    if scheduled_summaries:
-        green_api_send_message(chat_id, "תוזמנו לך ביומן:\n" + "\n".join(scheduled_summaries))
 
 
 # background contact refresh (every hour)
@@ -994,11 +1159,67 @@ def _scheduled_send_loop():
 threading.Thread(target=_scheduled_send_loop, daemon=True).start()
 
 
+def _poll_calendar_changes():
+    """Detects manual changes to already-scheduled task events: a moved time is
+    synced silently (no message — you already know you moved it), while a
+    deleted event is ambiguous, so we ask once whether it means the task is
+    done or needs rescheduling."""
+    cfg = load_config()
+    chat_id = cfg.get("personal_whatsapp_chat_id")
+    if not chat_id:
+        return
+    calendar_id = cfg.get("business_calendar_id") or "primary"
+    try:
+        service = get_calendar_write_service()
+    except Exception as e:
+        log.warning("Could not get calendar service for polling: %s", e)
+        return
+
+    for t in load_tasks():
+        if t.get("schedule_status") != "scheduled" or not t.get("calendar_event_id"):
+            continue
+        try:
+            event = service.events().get(calendarId=calendar_id, eventId=t["calendar_event_id"]).execute()
+        except HttpError as e:
+            if e.resp.status == 404:
+                q = green_api_send_message(
+                    chat_id,
+                    f"ראיתי שהסרת את '{(t.get('original_text') or '')[:60]}' מהיומן — בוצע או לתזמן מחדש?"
+                )
+                _update_task_fields(
+                    t["id"],
+                    pending_question_type="removed_confirmation",
+                    pending_question_message_id=q.get("idMessage"),
+                )
+            else:
+                log.warning("Could not check calendar event for task %s: %s", t["id"], e)
+            continue
+        except Exception as e:
+            log.warning("Could not check calendar event for task %s: %s", t["id"], e)
+            continue
+
+        event_start_str = (event.get("start") or {}).get("dateTime")
+        if not event_start_str:
+            continue
+        try:
+            actual = datetime.fromisoformat(event_start_str)
+            stored = datetime.fromisoformat(t["scheduled_at"]) if t.get("scheduled_at") else None
+            if stored is None or actual != stored:
+                _update_task_fields(t["id"], scheduled_at=actual.isoformat())
+        except Exception:
+            pass
+
+
 def _scheduling_catchup_loop():
     """Retries scheduling for personal tasks left 'unscheduled' (e.g. no free
-    slot was available last time) — the calendar may have opened up since."""
+    slot was available last time) — the calendar may have opened up since.
+    Also polls for manual calendar changes on already-scheduled tasks first."""
     while True:
         _time.sleep(60 * 60)
+        try:
+            _poll_calendar_changes()
+        except Exception as e:
+            log.error("Calendar polling error: %s", e)
         try:
             try_schedule_pending_tasks()
         except Exception as e:
@@ -1008,6 +1229,143 @@ threading.Thread(target=_scheduling_catchup_loop, daemon=True).start()
 
 
 # ── webhook ───────────────────────────────────────────────────────────────────
+
+_DONE_WORDS = {"בוצע", "נעשה", "סיימתי", "done"}
+
+
+def _looks_like_done(text: str) -> bool:
+    words = (text or "").strip().lower().split()
+    return bool(words) and words[0] in _DONE_WORDS
+
+
+def _handle_pending_question_reply(t: dict, text: str, chat_id: str):
+    """Dispatches a reply to task t's pending_question_type: duration answer,
+    'was the removed event done or should it be rescheduled', or a yes/no
+    confirmation for a proposed reschedule/cancel."""
+    qtype = t.get("pending_question_type")
+
+    if qtype == "duration":
+        minutes = parse_duration_minutes(text)
+        if minutes is None and t.get("suggested_minutes") and _is_affirmative(text):
+            minutes = t["suggested_minutes"]
+        if minutes is None:
+            green_api_send_message(chat_id, "לא הבנתי — תוכל לתת מספר דקות? (למשל 30)")
+            return
+        deadline = parse_deadline(text)
+        fields = {
+            "estimated_minutes": minutes, "schedule_status": "unscheduled",
+            "pending_question_type": None, "pending_question_message_id": None,
+        }
+        if deadline:
+            fields["deadline"] = deadline.isoformat()
+        _update_task_fields(t["id"], **fields)
+        deadline_note = f" עד {deadline.strftime('%d/%m')}" if deadline else ""
+        green_api_send_message(chat_id, f"נרשם: {minutes} דקות{deadline_note}. אני אשבץ לך זמן ואעדכן.")
+        try:
+            try_schedule_pending_tasks()
+        except Exception as e:
+            log.error("Scheduling after estimate failed: %s", e)
+        return
+
+    if qtype == "removed_confirmation":
+        _update_task_fields(t["id"], pending_question_type=None, pending_question_message_id=None)
+        if _looks_like_done(text):
+            _update_task_fields(t["id"], status="done", completed_at=datetime.utcnow().isoformat())
+            green_api_send_message(chat_id, "נרשם כבוצע ✓")
+        else:
+            _update_task_fields(
+                t["id"], schedule_status="unscheduled", calendar_event_id=None,
+                scheduled_at=None, schedule_confirmation_message_id=None,
+            )
+            green_api_send_message(chat_id, "בסדר, אשבץ מחדש.")
+            try:
+                try_schedule_pending_tasks()
+            except Exception as e:
+                log.error("Rescheduling after removal failed: %s", e)
+        return
+
+    if qtype == "reschedule_confirm":
+        target = t.get("pending_reschedule_target")
+        _update_task_fields(
+            t["id"], pending_question_type=None, pending_question_message_id=None,
+            pending_reschedule_target=None,
+        )
+        if not _is_affirmative(text):
+            green_api_send_message(chat_id, "בסדר, לא שיניתי כלום.")
+            return
+        if target == "CANCEL":
+            _delete_calendar_event(t.get("calendar_event_id"))
+            _update_task_fields(t["id"], schedule_status="cancelled", calendar_event_id=None)
+            green_api_send_message(chat_id, "בוטל ונמחק מהיומן.")
+            return
+        try:
+            new_start = datetime.fromisoformat(target)
+            _move_scheduled_task(t, new_start)
+            green_api_send_message(chat_id, f"הועבר ל-{new_start.strftime('%d/%m %H:%M')} ✓")
+        except Exception as e:
+            log.error("Failed to apply confirmed reschedule for task %s: %s", t["id"], e)
+            green_api_send_message(chat_id, "לא הצלחתי להזיז את זה, נסה שוב מאוחר יותר.")
+        return
+
+
+def _handle_negotiation_reply(t: dict, text: str, chat_id: str):
+    """Interprets a free-text reply quoting an already-scheduled task's
+    confirmation message: confirm / reschedule / cancel. Only commits a real
+    calendar change directly when the AI is confident about the exact new
+    time — anything ambiguous gets a yes/no confirmation first."""
+    result = parse_negotiation_action(t.get("original_text") or "", text)
+    if not result:
+        green_api_send_message(chat_id, "לא הצלחתי להבין — אפשר לנסח מחדש?")
+        return
+
+    action = result.get("action")
+    if action == "confirm":
+        green_api_send_message(chat_id, "בסדר, נשאר כמו שקבענו.")
+        return
+
+    if action == "cancel":
+        q = green_api_send_message(
+            chat_id, f"לבטל את '{(t.get('original_text') or '')[:60]}' ולמחוק מהיומן — לאשר?"
+        )
+        _update_task_fields(
+            t["id"], pending_question_type="reschedule_confirm",
+            pending_question_message_id=q.get("idMessage"), pending_reschedule_target="CANCEL",
+        )
+        return
+
+    if action == "reschedule":
+        when_iso = result.get("when_iso")
+        new_start = None
+        if when_iso:
+            try:
+                new_start = datetime.fromisoformat(when_iso)
+                if new_start.tzinfo is None:
+                    new_start = new_start.replace(tzinfo=ZoneInfo(get_timezone_name()))
+            except Exception:
+                new_start = None
+        if new_start is None:
+            green_api_send_message(chat_id, "לא הבנתי מתי בדיוק תרצה — תוכל לפרט תאריך/שעה?")
+            return
+
+        if result.get("confident"):
+            try:
+                _move_scheduled_task(t, new_start)
+                green_api_send_message(chat_id, f"הועבר ל-{new_start.strftime('%d/%m %H:%M')} ✓")
+            except Exception as e:
+                log.error("Failed to reschedule task %s: %s", t["id"], e)
+                green_api_send_message(chat_id, "לא הצלחתי להזיז את זה, נסה שוב מאוחר יותר.")
+            return
+
+        q = green_api_send_message(
+            chat_id,
+            f"להעביר את '{(t.get('original_text') or '')[:60]}' ל-{new_start.strftime('%d/%m %H:%M')} — לאשר?"
+        )
+        _update_task_fields(
+            t["id"], pending_question_type="reschedule_confirm",
+            pending_question_message_id=q.get("idMessage"), pending_reschedule_target=new_start.isoformat(),
+        )
+        return
+
 
 def _handle_personal_text_message(payload, body, msg_data_outer, type_webhook):
     """Handle a plain (non-reaction) WhatsApp text from the user's own chat with
@@ -1060,24 +1418,26 @@ def _handle_personal_text_message(payload, body, msg_data_outer, type_webhook):
         )
         return
     log.info("Personal chat message: typeMessage=%r text=%r stanza_id=%r", type_message, text, stanza_id)
+
     if stanza_id:
+        # (1) a reply to one of OUR pending questions — duration / removed-confirmation / reschedule-confirm
         for t in load_tasks():
-            if t.get("duration_question_message_id") == stanza_id and t.get("estimated_minutes") is None:
-                minutes = parse_duration_minutes(text)
-                if minutes is None:
-                    green_api_send_message(chat_id, "לא הבנתי — תוכל לתת מספר דקות? (למשל 30)")
-                    return
-                _update_task_fields(t["id"], estimated_minutes=minutes, schedule_status="unscheduled")
-                green_api_send_message(chat_id, f"נרשם: {minutes} דקות. אני אשבץ לך זמן ואעדכן.")
-                try:
-                    try_schedule_pending_tasks()
-                except Exception as e:
-                    log.error("Scheduling after estimate failed: %s", e)
+            if t.get("pending_question_message_id") == stanza_id:
+                _handle_pending_question_reply(t, text, chat_id)
+                return
+
+        # (2) a reply quoting a task's (persistent) scheduling confirmation — negotiation
+        for t in load_tasks():
+            if t.get("schedule_confirmation_message_id") == stanza_id and t.get("schedule_status") == "scheduled":
+                _handle_negotiation_reply(t, text, chat_id)
                 return
 
     wh = parse_work_hours_command(text)
     if wh:
         day_key, entry = wh
+        if entry["active"] and entry["start"] >= entry["end"]:
+            green_api_send_message(chat_id, "שעת הסיום חייבת להיות אחרי שעת ההתחלה — לא נשמר.")
+            return
         work_hours = get_work_hours(cfg)
         work_hours[day_key] = entry
         cfg["work_hours"] = work_hours
@@ -1266,16 +1626,40 @@ def webhook():
                 task_record.update({
                     "schedule_status": "awaiting_estimate",
                     "estimated_minutes": None,
-                    "duration_question_message_id": None,
+                    "pending_question_type": None,
+                    "pending_question_message_id": None,
+                    "pending_reschedule_target": None,
+                    "schedule_confirmation_message_id": None,
                     "scheduled_at": None,
                     "calendar_event_id": None,
+                    "deadline": None,
+                    "suggested_minutes": None,
                 })
             append_task(task_record)
             if is_mine and personal_chat:
-                q_text = f"נרשם: '{(orig_text or subject)[:120]}'. כמה זמן זה ייקח? (למשל: 15 / חצי שעה / שעה)"
+                suggested_minutes, suggested_reason = suggest_duration_minutes(
+                    orig_text or subject, personal_email
+                )
+                if suggested_minutes:
+                    reason_note = f" ({suggested_reason})" if suggested_reason else ""
+                    q_text = (
+                        f"נרשם: '{(orig_text or subject)[:120]}'. מעריך כ-{suggested_minutes} דק'{reason_note} — "
+                        f"מאשר? (או תן מספר אחר, ואפשר גם דדליין כמו 'כן עד יום שלישי')"
+                    )
+                else:
+                    q_text = (
+                        f"נרשם: '{(orig_text or subject)[:120]}'. כמה זמן זה ייקח? "
+                        f"(למשל: 15 / חצי שעה / שעה — אפשר גם דדליין, למשל: 30 דקות עד יום שלישי)"
+                    )
                 resp = green_api_send_message(personal_chat, q_text)
                 if resp.get("idMessage"):
-                    _update_task_fields(task_id, duration_question_message_id=resp["idMessage"])
+                    fields = {
+                        "pending_question_type": "duration",
+                        "pending_question_message_id": resp["idMessage"],
+                    }
+                    if suggested_minutes:
+                        fields["suggested_minutes"] = suggested_minutes
+                    _update_task_fields(task_id, **fields)
             log.info("Email sent to %s for reaction %s", to_email, reaction)
         except Exception as e:
             errors.append(str(e))
@@ -1429,16 +1813,26 @@ def save_work_hours_api():
     data = request.get_json() or {}
     cfg = load_config()
     work_hours = get_work_hours(cfg)
+    rejected = []
     for day, entry in data.items():
         if day not in work_hours or not isinstance(entry, dict):
             continue
-        work_hours[day] = {
+        candidate = {
             "active": bool(entry.get("active", work_hours[day]["active"])),
             "start": entry.get("start") or work_hours[day]["start"],
             "end": entry.get("end") or work_hours[day]["end"],
         }
+        if candidate["active"] and candidate["start"] >= candidate["end"]:
+            rejected.append(day)
+            continue
+        work_hours[day] = candidate
     cfg["work_hours"] = work_hours
     save_config_data(cfg)
+    if rejected:
+        return jsonify({
+            "ok": False, "work_hours": work_hours, "rejected": rejected,
+            "error": "שעת הסיום חייבת להיות אחרי שעת ההתחלה — לא נשמר עבור: " + ", ".join(rejected),
+        }), 400
     return jsonify({"ok": True, "work_hours": work_hours})
 
 

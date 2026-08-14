@@ -1003,16 +1003,25 @@ async function loadWorkHours() {
 
 async function saveWorkHours() {
   const payload = {};
-  for (const [key] of WORK_HOUR_DAYS) {
-    payload[key] = {
+  const badDays = [];
+  for (const [key, label] of WORK_HOUR_DAYS) {
+    const entry = {
       active: document.getElementById(`wh-active-${key}`).checked,
       start:  document.getElementById(`wh-start-${key}`).value,
       end:    document.getElementById(`wh-end-${key}`).value,
     };
+    if (entry.active && entry.start >= entry.end) badDays.push(label);
+    payload[key] = entry;
   }
-  await fetch('/api/work-hours', {
+  if (badDays.length) {
+    showToast('שעת הסיום חייבת להיות אחרי ההתחלה — בדוק את: ' + badDays.join(', '), true);
+    return;
+  }
+  const res = await fetch('/api/work-hours', {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
   });
+  const result = await res.json();
+  if (!res.ok) { showToast(result.error || 'שגיאה בשמירה', true); return; }
   showToast('שעות הפעילות נשמרו ✓');
 }
 
