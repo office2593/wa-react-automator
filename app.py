@@ -1252,7 +1252,7 @@ def _scheduling_catchup_loop():
 threading.Thread(target=_scheduling_catchup_loop, daemon=True).start()
 
 
-UNREAD_POLL_INTERVAL_SECONDS = 90
+UNREAD_POLL_INTERVAL_SECONDS = 5
 
 
 def _poll_unread_counts():
