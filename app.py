@@ -59,6 +59,7 @@ if _client_secrets_env:
 RULES_FILE  = DATA_DIR / "rules.json"
 LOG_FILE    = DATA_DIR / "log.json"
 TASKS_FILE  = DATA_DIR / "tasks.json"
+INBOX_FILE  = DATA_DIR / "inbox.json"
 GROUPS_FILE = DATA_DIR / "groups.json"
 BUTTON_MSGS_FILE = DATA_DIR / "button_messages.json"
 CONFIG_FILE = DATA_DIR / "config.json"
@@ -263,6 +264,29 @@ def append_task(entry: dict):
     tasks = load_tasks()
     tasks.insert(0, entry)
     save_tasks(tasks)
+
+
+def load_inbox():
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        return db_get("inbox", [])
+    return load_json(INBOX_FILE, [])
+
+
+def save_inbox(data):
+    if DATABASE_URL and POSTGRES_AVAILABLE:
+        db_set("inbox", data)
+    else:
+        save_json(INBOX_FILE, data)
+
+
+def append_inbox_entry(entry: dict):
+    """Adds one currently-unread message. The store only ever holds messages
+    that are still unread — _poll_unread_counts removes a chat's entries
+    entirely once GREEN API reports its unreadCount back at 0, rather than
+    flagging them, so /api/inbox never needs to filter."""
+    inbox = load_inbox()
+    inbox.insert(0, entry)
+    save_inbox(inbox)
 
 
 def load_groups():
@@ -1228,6 +1252,58 @@ def _scheduling_catchup_loop():
 threading.Thread(target=_scheduling_catchup_loop, daemon=True).start()
 
 
+UNREAD_POLL_INTERVAL_SECONDS = 90
+
+
+def _poll_unread_counts():
+    """The /inbox screen has no 'mark as read' button by design — an entry
+    only leaves it once the message is genuinely read in WhatsApp itself.
+    GREEN API doesn't push a webhook for that, so we poll getChats (which
+    reports a live unreadCount per chat) and drop a chat's stored entries
+    entirely once its count is back at 0."""
+    cfg = load_config()
+    if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
+        return
+    inbox = load_inbox()
+    if not inbox:
+        return
+    tracked_chat_ids = {e["chat_id"] for e in inbox}
+    try:
+        url = green_api_url(cfg, "getChats")
+        r = http_requests.get(url, timeout=15)
+        r.raise_for_status()
+        chats = r.json()
+    except Exception as e:
+        log.warning("Could not fetch getChats for unread polling: %s", e)
+        return
+
+    unread_counts = {c.get("id"): c.get("unreadCount", 0) for c in chats if isinstance(c, dict)}
+    still_unread_chat_ids = {
+        chat_id for chat_id in tracked_chat_ids
+        if unread_counts.get(chat_id, 0) > 0
+    }
+    if still_unread_chat_ids == tracked_chat_ids:
+        return  # nothing to clear
+
+    remaining = [e for e in inbox if e["chat_id"] in still_unread_chat_ids]
+    save_inbox(remaining)
+    log.info(
+        "Unread polling: cleared %d inbox entries (chats now read: %s)",
+        len(inbox) - len(remaining), tracked_chat_ids - still_unread_chat_ids
+    )
+
+
+def _unread_poll_loop():
+    while True:
+        _time.sleep(UNREAD_POLL_INTERVAL_SECONDS)
+        try:
+            _poll_unread_counts()
+        except Exception as e:
+            log.error("Unread polling error: %s", e)
+
+threading.Thread(target=_unread_poll_loop, daemon=True).start()
+
+
 # ── webhook ───────────────────────────────────────────────────────────────────
 
 _DONE_WORDS = {"בוצע", "נעשה", "סיימתי", "done"}
@@ -1365,6 +1441,79 @@ def _handle_negotiation_reply(t: dict, text: str, chat_id: str):
             pending_question_message_id=q.get("idMessage"), pending_reschedule_target=new_start.isoformat(),
         )
         return
+
+
+_INBOX_MESSAGE_KINDS = {
+    "textMessage": "text",
+    "extendedTextMessage": "text",
+    "documentMessage": "document",
+    "imageMessage": "image",
+    "videoMessage": "video",
+    "audioMessage": "audio",
+}
+
+_INBOX_MEDIA_LABELS = {
+    "document": "קובץ מצורף",
+    "image": "תמונה",
+    "video": "וידאו",
+    "audio": "הודעה קולית",
+}
+
+
+def _handle_inbox_message(payload, body, msg_data_outer, type_webhook):
+    """Feeds the /inbox unread-messages screen. Only real incoming client
+    messages count — never the personal bot-command chat, never our own
+    outgoing replies (those are, by definition, already 'read' — we wrote
+    them). Read-state itself is resolved later by _poll_unread_counts against
+    GREEN API's own unreadCount, not by anything here."""
+    if type_webhook != "incomingMessageReceived":
+        return
+    kind = _INBOX_MESSAGE_KINDS.get(msg_data_outer.get("typeMessage", ""))
+    if not kind:
+        return
+
+    cfg = load_config()
+    personal_chat = cfg.get("personal_whatsapp_chat_id", "")
+    sender_data = payload.get("senderData", {}) or body.get("senderData", {})
+    chat_id = sender_data.get("chatId", "")
+    if not chat_id or chat_id == personal_chat:
+        return
+
+    is_group = chat_id.endswith("@g.us")
+    chat_name = (
+        get_contact_name(chat_id)
+        or sender_data.get("chatName", "")
+        or sender_data.get("senderName", "")
+        or chat_id
+    )
+    sender_name = sender_data.get("senderName", "") if is_group else None
+
+    text = None
+    attachment_name = None
+    if kind == "text":
+        text = (
+            (msg_data_outer.get("textMessageData") or {}).get("textMessage", "")
+            or (msg_data_outer.get("extendedTextMessageData") or {}).get("text", "")
+            or None
+        )
+    else:
+        file_data = msg_data_outer.get("fileMessageData") or {}
+        attachment_name = file_data.get("fileName") or _INBOX_MEDIA_LABELS.get(kind, "קובץ מצורף")
+        text = file_data.get("caption") or None
+
+    if not text and not attachment_name:
+        return
+
+    append_inbox_entry({
+        "id": datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+        "chat_id": chat_id,
+        "chat_name": chat_name,
+        "is_group": is_group,
+        "sender_name": sender_name,
+        "text": text,
+        "attachment_name": attachment_name,
+        "time": datetime.utcnow().isoformat(),
+    })
 
 
 def _handle_personal_text_message(payload, body, msg_data_outer, type_webhook):
@@ -1535,6 +1684,10 @@ def webhook():
             _handle_personal_text_message(payload, body, msg_data_outer, type_)
         except Exception as e:
             log.error("Error handling personal text message: %s", e)
+        try:
+            _handle_inbox_message(payload, body, msg_data_outer, type_)
+        except Exception as e:
+            log.error("Error handling inbox message: %s", e)
         return jsonify({"ok": True}), 200
 
     # extract reaction emoji (try all known paths)
@@ -1718,6 +1871,14 @@ def get_log():
 @app.route("/api/tasks", methods=["GET"])
 def get_tasks():
     return jsonify(load_tasks())
+
+
+@app.route("/api/inbox", methods=["GET"])
+def get_inbox():
+    """Everything here is, by construction, currently unread — entries are
+    removed (not flagged) by _poll_unread_counts once GREEN API confirms the
+    chat's unreadCount is back at 0."""
+    return jsonify(load_inbox())
 
 
 @app.route("/api/tasks/<tid>", methods=["PUT"])
@@ -2182,6 +2343,11 @@ def green_test():
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
+
+
+@app.route("/inbox")
+def inbox_page():
+    return send_from_directory("static", "inbox.html")
 
 
 @app.route("/favicon.ico")

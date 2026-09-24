@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>הודעות שלא נקראו — אורן דולב</title>
+<style>
+  :root {
+    --purple: #7B2D8B;
+    --purple-light: #c084d8;
+    --purple-dark: #4a0a6b;
+    --deep: #1a0030;
+    --border: #e0d0f0;
+    --muted: #9a8aae;
+    --text: #1a0030;
+    --green: #25D366;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #ffffff; color: var(--text); }
+
+  header {
+    height: 64px; background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 60%, var(--deep) 100%);
+    display: flex; align-items: center; padding: 0 28px; gap: 14px;
+    box-shadow: 0 4px 24px rgba(26,0,48,0.35); position: sticky; top: 0; z-index: 10;
+  }
+  header .logo { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,0.15);
+    display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 15px; flex-shrink: 0; }
+  header .brand { display: flex; flex-direction: column; }
+  header .brand .name { color: #fff; font-size: 1.05rem; font-weight: 700; letter-spacing: .3px; }
+  header .brand .sub { color: var(--purple-light); font-size: .75rem; margin-top: 1px; }
+  header .status { display: flex; align-items: center; gap: 8px; color: #e8d8f5; font-size: .82rem; margin-inline-start: auto; }
+  header .status .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  .toolbar {
+    background: #fff; border-bottom: 1px solid var(--border); padding: 16px 28px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  .toolbar h1 { font-size: 1.15rem; font-weight: 700; color: var(--text); white-space: nowrap; }
+  .toolbar .count { background: rgba(37,211,102,0.12); color: #1a9c53; padding: 5px 14px; border-radius: 999px;
+    font-weight: 700; font-size: .82rem; white-space: nowrap; }
+  .toolbar .spacer { flex-grow: 1; }
+
+  .segmented { display: flex; align-items: center; background: #f8f4fc; border: 1.5px solid var(--border);
+    border-radius: 999px; padding: 3px; gap: 2px; }
+  .segmented button { border: none; border-radius: 999px; padding: 7px 16px; cursor: pointer; font-size: .82rem;
+    font-family: inherit; font-weight: 500; background: transparent; color: var(--purple-dark); }
+  .segmented button.active { font-weight: 700; background: var(--purple); color: #fff; }
+  .segmented button:hover:not(.active) { color: var(--purple-dark); }
+
+  #search { width: 190px; padding: 8px 14px; border: 1.5px solid var(--border); border-radius: 10px;
+    font-size: .85rem; font-family: inherit; color: var(--text); }
+  #search::placeholder { color: #b3a3c7; }
+
+  #sort { padding: 8px 32px 8px 14px; border: 1.5px solid var(--border); border-radius: 10px; font-size: .85rem;
+    font-family: inherit; color: var(--text); background-color: #fff; cursor: pointer; appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a6a8a' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    background-repeat: no-repeat; background-position: left 10px center; background-size: 14px; }
+
+  #feed { padding: 4px 28px 40px; max-width: 1100px; }
+  .msg-row { display: flex; flex-direction: column; gap: 5px; padding: 15px 4px; border-bottom: 1px solid #ece3f5; }
+  .msg-row .top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+  .msg-row .chat-name { font-size: 1.05rem; font-weight: 700; color: var(--text); }
+  .msg-row .time { font-size: .8rem; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+  .msg-row .body-text { font-size: .92rem; color: #3a2a4a; line-height: 1.55; }
+  .msg-row .body-text .sender { font-weight: 700; }
+  .msg-row .attachment { display: flex; align-items: center; gap: 9px; font-size: .9rem; color: #3a2a4a; margin-top: 2px; }
+  .msg-row .attachment svg { flex-shrink: 0; }
+  .msg-row .attachment .meta-name { color: var(--text); }
+
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    padding: 90px 0; color: var(--muted); text-align: center; }
+  .empty-state .title { font-size: .95rem; font-weight: 700; color: var(--purple-dark); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">אד</div>
+  <div class="brand">
+    <div class="name">אורן דולב — רואה חשבון</div>
+    <div class="sub">מערכת ניהול WhatsApp</div>
+  </div>
+  <div class="status"><div class="dot"></div>מערכת פעילה</div>
+</header>
+
+<div class="toolbar">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4a0a6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+  <h1>הודעות שלא נקראו</h1>
+  <div class="count" id="total-count">טוען...</div>
+
+  <div class="spacer"></div>
+
+  <div class="segmented" id="type-filter">
+    <button data-value="all" class="active">הכל</button>
+    <button data-value="groups">קבוצות</button>
+    <button data-value="direct">אישיות</button>
+  </div>
+
+  <input type="text" id="search" placeholder="חיפוש איש קשר...">
+
+  <select id="sort">
+    <option value="newest">מהחדש לישן</option>
+    <option value="oldest">מהישן לחדש</option>
+    <option value="name">לפי שם (א-ת)</option>
+  </select>
+</div>
+
+<div id="feed"></div>
+
+<script>
+const REFRESH_MS = 5000;
+let messages = [];
+let filterType = 'all';
+let sortBy = 'newest';
+let search = '';
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatTime(iso) {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+    if (isToday) return d.toLocaleTimeString('he-IL', {hour: '2-digit', minute: '2-digit'});
+    if (isYesterday) return 'אתמול';
+    return d.toLocaleDateString('he-IL', {day: '2-digit', month: '2-digit', year: 'numeric'});
+  } catch { return ''; }
+}
+
+async function loadInbox() {
+  try {
+    const res = await fetch('/api/inbox');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    messages = await res.json();
+  } catch (e) {
+    console.error('Failed to load inbox', e);
+    document.getElementById('total-count').textContent = 'שגיאת טעינה';
+    document.getElementById('feed').innerHTML = `<div class="empty-state">
+      <div class="title">לא ניתן לטעון הודעות</div>
+      <div>יש לפתוח את העמוד הזה דרך השרת הרץ (למשל http://localhost:5000/inbox או כתובת הפרויקט ב-Railway) — לא כקובץ מקומי מהדיסק.</div>
+    </div>`;
+    return;
+  }
+  render();
+}
+
+function render() {
+  const total = messages.length;
+  document.getElementById('total-count').textContent =
+    total === 0 ? 'הכול נקרא' : (total === 1 ? 'הודעה אחת שלא נקראה' : total + ' הודעות שלא נקראו');
+
+  let list = messages
+    .filter((m) => !search || (m.chat_name || '').indexOf(search) !== -1)
+    .filter((m) => filterType === 'all' || (filterType === 'groups' && m.is_group) || (filterType === 'direct' && !m.is_group));
+
+  list = list.slice();
+  if (sortBy === 'newest') list.sort((a, b) => new Date(b.time) - new Date(a.time));
+  else if (sortBy === 'oldest') list.sort((a, b) => new Date(a.time) - new Date(b.time));
+  else if (sortBy === 'name') list.sort((a, b) => (a.chat_name || '').localeCompare(b.chat_name || '', 'he'));
+
+  const feed = document.getElementById('feed');
+
+  if (total === 0) {
+    feed.innerHTML = `<div class="empty-state">
+      <div class="title">אין הודעות שלא נקראו</div>
+      <div>הכול עדכני, כל הכבוד</div>
+    </div>`;
+    return;
+  }
+
+  if (list.length === 0) {
+    feed.innerHTML = `<div class="empty-state">
+      <div class="title">אין הודעות תואמות</div>
+      <div>נסה לשנות את הסינון או את החיפוש</div>
+    </div>`;
+    return;
+  }
+
+  feed.innerHTML = list.map((m) => {
+    let bodyHtml = '';
+    if (m.attachment_name) {
+      bodyHtml = `<div class="attachment">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7a6a8a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+        <span class="meta-name">${esc(m.attachment_name)}</span>
+      </div>`;
+    } else if (m.is_group && m.sender_name) {
+      bodyHtml = `<div class="body-text"><span class="sender">${esc(m.sender_name)}:</span> ${esc(m.text)}</div>`;
+    } else {
+      bodyHtml = `<div class="body-text">${esc(m.text)}</div>`;
+    }
+    return `<div class="msg-row">
+      <div class="top">
+        <div class="chat-name">${esc(m.chat_name)}</div>
+        <div class="time">${esc(formatTime(m.time))}</div>
+      </div>
+      ${bodyHtml}
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('type-filter').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  filterType = btn.dataset.value;
+  document.querySelectorAll('#type-filter button').forEach((b) => b.classList.toggle('active', b === btn));
+  render();
+});
+
+document.getElementById('search').addEventListener('input', (e) => {
+  search = e.target.value;
+  render();
+});
+
+document.getElementById('sort').addEventListener('change', (e) => {
+  sortBy = e.target.value;
+  render();
+});
+
+loadInbox();
+setInterval(loadInbox, REFRESH_MS);
+</script>
+
+</body>
+</html>
