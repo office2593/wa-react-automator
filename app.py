@@ -1277,23 +1277,30 @@ def _poll_unread_counts():
         log.warning("Could not fetch getChats for unread polling: %s", e)
         return
 
+    # getChats appears to return only some subset of chats (likely the most
+    # recently active ones) — NOT necessarily every chat we're tracking. A
+    # chat missing from the response is therefore inconclusive, not "read":
+    # treating it as read caused chats to vanish from the inbox on their own
+    # once other conversations pushed them out of GREEN API's returned page.
+    # Only an EXPLICIT unreadCount of 0 for a chat that IS present counts.
+    seen_chat_ids = {c.get("id") for c in chats if isinstance(c, dict)}
     unread_counts = {c.get("id"): c.get("unreadCount", 0) for c in chats if isinstance(c, dict)}
     log.info(
         "Unread polling: tracked chats=%s live counts=%s",
         tracked_chat_ids, {cid: unread_counts.get(cid, "missing-from-getChats") for cid in tracked_chat_ids}
     )
-    still_unread_chat_ids = {
+    now_read_chat_ids = {
         chat_id for chat_id in tracked_chat_ids
-        if unread_counts.get(chat_id, 0) > 0
+        if chat_id in seen_chat_ids and unread_counts.get(chat_id, 0) == 0
     }
-    if still_unread_chat_ids == tracked_chat_ids:
-        return  # nothing to clear
+    if not now_read_chat_ids:
+        return  # nothing confirmed read yet — leave everything as-is
 
-    remaining = [e for e in inbox if e["chat_id"] in still_unread_chat_ids]
+    remaining = [e for e in inbox if e["chat_id"] not in now_read_chat_ids]
     save_inbox(remaining)
     log.info(
         "Unread polling: cleared %d inbox entries (chats now read: %s)",
-        len(inbox) - len(remaining), tracked_chat_ids - still_unread_chat_ids
+        len(inbox) - len(remaining), now_read_chat_ids
     )
 
 
@@ -1536,6 +1543,35 @@ def _handle_inbox_message(payload, body, msg_data_outer, type_webhook):
     })
 
 
+def _handle_inbox_reaction(payload, body, reaction, orig_text):
+    """A client's own reaction (e.g. 👍) to a message — surfaced in /inbox too,
+    same as any other incoming message. Only call this for genuinely incoming
+    reactions; the office's own automation reactions (⌛/⏳/...) are outgoing
+    and must never reach here."""
+    cfg = load_config()
+    personal_chat = cfg.get("personal_whatsapp_chat_id", "")
+    sender_data = payload.get("senderData", {}) or body.get("senderData", {})
+    chat_id = sender_data.get("chatId", "")
+    if not chat_id or chat_id == personal_chat:
+        return
+
+    is_group = chat_id.endswith("@g.us")
+    chat_name = get_contact_name(chat_id) or sender_data.get("chatName", "") or chat_id
+    sender_name = sender_data.get("senderName", "") if is_group else None
+
+    text = f"הגיב/ה {reaction}" + (f' להודעה: "{orig_text[:60]}"' if orig_text else "")
+    append_inbox_entry({
+        "id": datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+        "chat_id": chat_id,
+        "chat_name": chat_name,
+        "is_group": is_group,
+        "sender_name": sender_name,
+        "text": text,
+        "attachment_name": None,
+        "time": datetime.now(timezone.utc).isoformat(),
+    })
+
+
 def _handle_personal_text_message(payload, body, msg_data_outer, type_webhook):
     """Handle a plain (non-reaction) WhatsApp text from the user's own chat with
     the bot: either a reply-to-quote answering a pending duration question, or a
@@ -1747,6 +1783,12 @@ def webhook():
         orig_text = get_message_from_history(chat_id, stanza_id)
         log.info("Fetched from history (stanzaId=%r): %r", stanza_id, orig_text[:100] if orig_text else "")
     timestamp  = datetime.utcnow().isoformat()
+
+    if type_.startswith("incoming"):
+        try:
+            _handle_inbox_reaction(payload, body, reaction, orig_text)
+        except Exception as e:
+            log.error("Error handling inbox reaction: %s", e)
 
     rules = load_rules()
     log.info("Rules loaded: %d rules. Looking for emoji: %r", len(rules), reaction)
