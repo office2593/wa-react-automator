@@ -1254,13 +1254,22 @@ threading.Thread(target=_scheduling_catchup_loop, daemon=True).start()
 
 UNREAD_POLL_INTERVAL_SECONDS = 5
 
+# GREEN API's unreadCount for a chat appears to lag briefly right after a
+# message arrives (observed: a chat reads back as 0 for a few seconds before
+# settling on the real count). At a 90s poll interval this was rarely hit; at
+# 5s it was hit constantly, wrongly clearing brand-new, still-unread messages
+# seconds after they arrived. We now require a chat's NEWEST tracked entry to
+# be at least this old before trusting a 0 reading enough to clear it.
+MIN_ENTRY_AGE_BEFORE_CLEAR_SECONDS = 30
+
 
 def _poll_unread_counts():
     """The /inbox screen has no 'mark as read' button by design — an entry
     only leaves it once the message is genuinely read in WhatsApp itself.
     GREEN API doesn't push a webhook for that, so we poll getChats (which
     reports a live unreadCount per chat) and drop a chat's stored entries
-    entirely once its count is back at 0."""
+    entirely once its count is back at 0 — but only once that 0 reading has
+    had time to settle (see MIN_ENTRY_AGE_BEFORE_CLEAR_SECONDS above)."""
     cfg = load_config()
     if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
         return
@@ -1289,10 +1298,37 @@ def _poll_unread_counts():
         "Unread polling: tracked chats=%s live counts=%s",
         tracked_chat_ids, {cid: unread_counts.get(cid, "missing-from-getChats") for cid in tracked_chat_ids}
     )
-    now_read_chat_ids = {
-        chat_id for chat_id in tracked_chat_ids
-        if chat_id in seen_chat_ids and unread_counts.get(chat_id, 0) == 0
-    }
+
+    now = datetime.now(timezone.utc)
+    newest_entry_time = {}
+    for e in inbox:
+        try:
+            t = datetime.fromisoformat(e["time"])
+        except Exception:
+            continue
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        cid = e["chat_id"]
+        if cid not in newest_entry_time or t > newest_entry_time[cid]:
+            newest_entry_time[cid] = t
+
+    now_read_chat_ids = set()
+    too_fresh_chat_ids = set()
+    for chat_id in tracked_chat_ids:
+        if chat_id not in seen_chat_ids or unread_counts.get(chat_id, 0) != 0:
+            continue
+        newest = newest_entry_time.get(chat_id)
+        age = (now - newest).total_seconds() if newest else None
+        if age is not None and age < MIN_ENTRY_AGE_BEFORE_CLEAR_SECONDS:
+            too_fresh_chat_ids.add(chat_id)
+            continue
+        now_read_chat_ids.add(chat_id)
+
+    if too_fresh_chat_ids:
+        log.info(
+            "Unread polling: %s read getChats=0 but newest entry is under %ds old — waiting before clearing",
+            too_fresh_chat_ids, MIN_ENTRY_AGE_BEFORE_CLEAR_SECONDS
+        )
     if not now_read_chat_ids:
         return  # nothing confirmed read yet — leave everything as-is
 

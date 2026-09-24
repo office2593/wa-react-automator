@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>מערכת ניהול — אורן דולב</title>
+<style>
+  :root {
+    --purple: #7B2D8B;
+    --purple-light: #c084d8;
+    --purple-dark: #4a0a6b;
+    --deep: #1a0030;
+    --bg: #f4f0f8;
+    --white: #fff;
+    --border: #e0d0f0;
+    --text: #1a0030;
+    --muted: #7a6a8a;
+    --green: #25D366;
+    --red: #e53935;
+    --radius: 14px;
+    --shadow: 0 4px 20px rgba(123,45,139,0.12);
+    --grad: linear-gradient(135deg, #7B2D8B 0%, #4a0a6b 60%, #1a0030 100%);
+    --grad-light: linear-gradient(135deg, #f8f4fc 0%, #ede0f8 100%);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── header ── */
+  header {
+    background: var(--grad);
+    padding: 0 28px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    height: 72px;
+    box-shadow: 0 4px 24px rgba(26,0,48,0.35);
+    position: sticky; top: 0; z-index: 50;
+  }
+  header img.logo { height: 48px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4)); }
+  header .title { color: #fff; font-size: 1.15rem; font-weight: 700; letter-spacing: .5px; }
+  header .subtitle { color: var(--purple-light); font-size: .8rem; margin-top: 2px; }
+  header .spacer { flex: 1; }
+  header .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  /* ── nav ── */
+  nav {
+    background: var(--white);
+    border-bottom: 2px solid var(--border);
+    display: flex;
+    padding: 0 28px;
+    gap: 4px;
+  }
+  nav button {
+    background: none; border: none; border-bottom: 3px solid transparent;
+    padding: 15px 20px; cursor: pointer; font-size: .95rem; color: var(--muted);
+    font-family: inherit; transition: all .2s; font-weight: 600;
+  }
+  nav button.active {
+    color: var(--purple);
+    border-bottom-color: var(--purple);
+    background: linear-gradient(to bottom, transparent, #f8f4fc);
+  }
+  nav button:hover:not(.active) { color: var(--purple-dark); }
+
+  main { max-width: 1000px; margin: 28px auto; padding: 0 16px; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* ── cards ── */
+  .card {
+    background: var(--white);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 26px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 1rem; font-weight: 700; color: var(--purple-dark); }
+
+  /* ── section title ── */
+  .section-title {
+    font-size: .7rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 1.5px; color: var(--purple); margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title::after { content:''; flex:1; height:1px; background: linear-gradient(90deg, var(--border), transparent); }
+
+  /* ── buttons ── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 20px; border: none; border-radius: 10px;
+    cursor: pointer; font-size: .9rem; font-weight: 700;
+    font-family: inherit; transition: all .2s;
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+  .btn:active { transform: translateY(0); }
+  .btn-primary { background: var(--grad); color: #fff; }
+  .btn-danger  { background: var(--red); color: #fff; }
+  .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost { background: transparent; color: var(--purple); border: 1.5px solid var(--purple); }
+
+  /* ── form ── */
+  label { display: block; font-size: .82rem; font-weight: 700; margin-bottom: 5px; color: var(--muted); }
+  input, textarea, select {
+    width: 100%; border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; font-size: .95rem; font-family: inherit;
+    outline: none; transition: border-color .2s; background: var(--white);
+    color: var(--text);
+  }
+  input:focus, textarea:focus { border-color: var(--purple); box-shadow: 0 0 0 3px rgba(123,45,139,0.08); }
+  textarea { resize: vertical; min-height: 100px; }
+  .field { margin-bottom: 16px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  /* ── variable chips ── */
+  .var-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .var-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 12px; border-radius: 20px; cursor: pointer;
+    font-size: .8rem; font-weight: 700;
+    background: var(--grad-light); color: var(--purple-dark);
+    border: 1.5px solid var(--purple-light);
+    transition: all .15s;
+    user-select: none;
+  }
+  .var-chip:hover { background: var(--grad); color: #fff; border-color: var(--purple-dark); transform: translateY(-1px); }
+  .var-chip .chip-icon { font-size: .9rem; }
+
+  /* ── rule cards ── */
+  .rules-grid { display: flex; flex-direction: column; gap: 12px; }
+  .rule-card {
+    border: 1.5px solid var(--border);
+    border-radius: 12px; padding: 16px 18px;
+    display: flex; align-items: center; gap: 14px;
+    transition: all .2s; background: var(--white);
+  }
+  .rule-card:hover { box-shadow: var(--shadow); border-color: var(--purple-light); transform: translateY(-1px); }
+  .rule-emoji { font-size: 2.2rem; min-width: 52px; text-align: center;
+    background: var(--grad-light); border-radius: 12px; padding: 8px; }
+  .rule-info { flex: 1; }
+  .rule-info strong { display: block; font-size: .95rem; color: var(--text); }
+  .rule-info small { color: var(--muted); font-size: .82rem; }
+  .rule-actions { display: flex; gap: 8px; align-items: center; }
+  .badge-active { background: #e8f5e9; color: #2e7d32; border-radius: 20px; padding: 3px 12px; font-size: .78rem; font-weight: 700; cursor: pointer; }
+  .badge-inactive { background: #fce4ec; color: #c62828; border-radius: 20px; padding: 3px 12px; font-size: .78rem; font-weight: 700; cursor: pointer; }
+
+  /* ── task table ── */
+  .log-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  .log-table th.sortable:hover { color: var(--purple); }
+  .log-table th .sort-arrow { font-size: .7rem; margin-right: 4px; opacity: .5; }
+  .log-table th .sort-arrow.active { opacity: 1; color: var(--purple); }
+  .log-table th select {
+    margin-top: 4px; font-size: .76rem; font-weight: 600; padding: 3px 6px;
+    border-radius: 7px; border: 1.5px solid var(--purple-light); color: var(--purple-dark);
+    background: var(--white); cursor: pointer;
+  }
+  tr.done td { opacity: .55; }
+  tr.done td:nth-child(5) { text-decoration: line-through; }
+  .task-check {
+    width: 24px; height: 24px; border-radius: 7px; cursor: pointer;
+    border: 2px solid var(--purple-light); background: var(--white);
+    display: flex; align-items: center; justify-content: center;
+    font-size: .9rem; flex-shrink: 0; transition: all .15s;
+  }
+  .task-check.checked { background: var(--green); border-color: var(--green); color: #fff; }
+
+  /* ── emoji picker ── */
+  .emoji-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .emoji-pick button {
+    font-size: 1.5rem; background: var(--bg); border: 2px solid transparent;
+    border-radius: 10px; padding: 6px 10px; cursor: pointer; transition: all .15s;
+  }
+  .emoji-pick button:hover { background: var(--grad-light); border-color: var(--purple-light); }
+  .emoji-pick button.selected { border-color: var(--purple); background: var(--grad-light); box-shadow: 0 2px 8px rgba(123,45,139,0.2); }
+
+  /* ── modal ── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(26,0,48,.55); z-index: 200;
+    align-items: center; justify-content: center; backdrop-filter: blur(2px);
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--white); border-radius: var(--radius); width: 900px;
+    max-width: 97vw; max-height: 92vh; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(26,0,48,.35);
+    display: flex; flex-direction: column;
+  }
+  .modal-head {
+    background: var(--grad); padding: 20px 26px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .modal-head h3 { color: #fff; font-size: 1.1rem; }
+  .modal-head button { background: none; border: none; color: rgba(255,255,255,.7); font-size: 1.4rem; cursor: pointer; }
+  .modal-body { flex: 1; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; }
+  .modal-form { padding: 24px; border-left: 1px solid var(--border); overflow-y: auto; }
+  .modal-preview { padding: 24px; background: #f0e8f8; overflow-y: auto; }
+  .modal-preview .preview-label { font-size: .75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--purple); margin-bottom: 12px; }
+  .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; background: var(--white); }
+
+  /* ── email preview ── */
+  .email-preview-frame {
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 4px 20px rgba(123,45,139,0.15);
+    background: #fff;
+    transform: scale(0.75); transform-origin: top right;
+    width: 133%;
+    margin-bottom: -33%;
+  }
+
+  /* ── log table ── */
+  .log-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  .log-table th { background: var(--grad-light); padding: 10px 12px; text-align: right; font-weight: 700; color: var(--purple-dark); border-bottom: 2px solid var(--border); }
+  .log-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .log-table tr:hover td { background: #faf7fd; }
+  .status-sent  { color: #2e7d32; font-weight: 700; }
+  .status-error { color: var(--red); font-weight: 700; }
+  .status-no_rule { color: var(--muted); }
+
+  /* ── settings ── */
+  .conn-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .conn-dot { width: 12px; height: 12px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
+  .conn-dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .conn-dot.err { background: var(--red); }
+  .conn-label { font-weight: 700; color: var(--text); }
+  .conn-status { color: var(--muted); font-size: .85rem; flex: 1; }
+  .hint { font-size: .82rem; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+  .hint a { color: var(--purple); }
+  .hint ol { padding-right: 18px; margin-top: 6px; }
+
+  .alert { border-radius: 10px; padding: 10px 16px; margin-bottom: 16px; font-size: .88rem; }
+  .alert-success { background: #e8f5e9; color: #1b5e20; }
+  .alert-error   { background: #ffebee; color: #b71c1c; }
+
+  .empty { text-align: center; color: var(--muted); padding: 48px; font-size: .95rem; }
+  .empty .empty-icon { font-size: 3rem; margin-bottom: 12px; }
+
+  /* ── stat chips ── */
+  .stats-row { display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .stat-chip {
+    flex: 1; min-width: 120px; padding: 16px 20px; border-radius: 12px;
+    background: var(--grad); color: #fff; text-align: center;
+  }
+  .stat-chip .num { font-size: 1.8rem; font-weight: 800; }
+  .stat-chip .lbl { font-size: .78rem; opacity: .85; margin-top: 2px; }
+
+  @media (max-width: 700px) {
+    .modal-body { grid-template-columns: 1fr; }
+    .modal-form { border-left: none; border-bottom: 1px solid var(--border); }
+    .email-preview-frame { transform: scale(0.55); width: 182%; margin-bottom: -50%; }
+    .form-row { grid-template-columns: 1fr; }
+    main { padding: 0 8px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <img class="logo" src="/static/favicon.png" alt="אורן דולב" onerror="this.style.display='none'" />
+  <div>
+    <div class="title">מערכת ניהול WhatsApp</div>
+    <div class="subtitle">אורן דולב — רואה חשבון</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="status-dot" id="system-dot" title="מערכת פעילה"></div>
+</header>
+
+<nav>
+  <button class="active" onclick="showPage('rules',this)">📋 כללים</button>
+  <button onclick="showPage('tasks',this)">✅ ניהול משימות</button>
+  <button onclick="showPage('groups',this)">👥 קבוצות לקוחות</button>
+  <button onclick="showPage('buttonmsgs',this)">🔘 הודעות עם כפתורים</button>
+  <button onclick="showPage('log',this)">📜 היסטוריה</button>
+  <button onclick="showPage('settings',this)">⚙️ הגדרות</button>
+</nav>
+
+<main>
+
+  <!-- ═══ RULES ═══ -->
+  <div id="page-rules" class="page active">
+    <div class="card">
+      <div class="card-header">
+        <h2>כללי אוטומציה</h2>
+        <button class="btn btn-primary" onclick="openNewRule()">+ כלל חדש</button>
+      </div>
+      <div id="rules-list" class="rules-grid">
+        <div class="empty"><div class="empty-icon">⚙️</div>טוען...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TASKS ═══ -->
+  <div id="page-tasks" class="page">
+    <div class="card">
+      <div class="card-header">
+        <h2>משימות שנשלחו לעובדים</h2>
+        <button class="btn btn-secondary" onclick="loadTasks()">🔄 רענן</button>
+      </div>
+      <div id="tasks-list" style="margin-top:4px">
+        <div class="empty"><div class="empty-icon">✅</div>טוען...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ GROUPS ═══ -->
+  <div id="page-groups" class="page">
+    <div class="card">
+      <div class="card-header">
+        <h2>קבוצות לקוחות</h2>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-secondary" onclick="testGroupSends()">🧪 בדיקת שליחה</button>
+          <button class="btn btn-primary" onclick="openNewGroup()">+ קבוצה חדשה</button>
+        </div>
+      </div>
+      <div id="groups-list" style="margin-top:4px">
+        <div class="empty"><div class="empty-icon">👥</div>טוען...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ BUTTON MESSAGES ═══ -->
+  <div id="page-buttonmsgs" class="page">
+    <div class="card">
+      <div class="card-header">
+        <h2>הודעות עם כפתורים</h2>
+        <button class="btn btn-primary" onclick="openNewButtonMsg()">+ הודעה חדשה</button>
+      </div>
+      <div id="buttonmsgs-list" style="margin-top:4px">
+        <div class="empty"><div class="empty-icon">🔘</div>טוען...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ LOG ═══ -->
+  <div id="page-log" class="page">
+    <div class="stats-row" id="stats-row" style="display:none">
+      <div class="stat-chip"><div class="num" id="stat-sent">0</div><div class="lbl">מיילים שנשלחו</div></div>
+      <div class="stat-chip"><div class="num" id="stat-error">0</div><div class="lbl">שגיאות</div></div>
+      <div class="stat-chip"><div class="num" id="stat-norule">0</div><div class="lbl">ללא כלל</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h2>היסטוריית פעולות</h2>
+        <button class="btn btn-secondary" onclick="loadLog()">🔄 רענן</button>
+      </div>
+      <div id="log-container"><div class="empty"><div class="empty-icon">📜</div>טוען...</div></div>
+    </div>
+  </div>
+
+  <!-- ═══ SETTINGS ═══ -->
+  <div id="page-settings" class="page">
+    <div class="card">
+      <h2 style="margin-bottom:16px">🟢 GREEN API (WhatsApp)</h2>
+      <div class="conn-row">
+        <div class="conn-dot" id="green-dot"></div>
+        <span class="conn-label">GREEN API</span>
+        <span class="conn-status" id="green-status-text">לא נבדק</span>
+        <button class="btn btn-ghost" onclick="testGreen()">בדוק חיבור</button>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Instance ID</label><input id="green-instance" placeholder="1234567890" /></div>
+        <div class="field"><label>API Token</label><input id="green-token" type="password" placeholder="••••••••" /></div>
+      </div>
+      <!-- אנשי קשר -->
+      <div style="margin-bottom:16px;padding:14px 16px;background:var(--grad-light);border-radius:10px;border:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-size:1.2rem">👥</span>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:.9rem;color:var(--purple-dark)">אנשי קשר</div>
+          <div style="font-size:.8rem;color:var(--muted)" id="contacts-status">טוען...</div>
+        </div>
+        <button class="btn btn-ghost" onclick="refreshContacts()" id="btn-refresh-contacts">🔄 רענן</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+        <label style="margin:0;white-space:nowrap;color:var(--muted);font-size:.85rem">רענון אוטומטי בשרת כל</label>
+        <input id="contacts-interval" type="number" min="1" max="1440" style="width:80px;text-align:center"
+          onchange="saveContactsInterval()" />
+        <span style="color:var(--muted);font-size:.85rem">דקות</span>
+      </div>
+
+      <div class="field">
+        <label>Webhook URL — העתק ל-GREEN API Console</label>
+        <input id="webhook-url" readonly style="background:#f8f4fc;cursor:pointer;font-family:monospace;font-size:.85rem" onclick="this.select();document.execCommand('copy');showToast('הועתק!')" />
+      </div>
+      <button class="btn btn-primary" onclick="saveGreenConfig()">שמור</button>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-bottom:16px">📧 Gmail</h2>
+      <div class="conn-row">
+        <div class="conn-dot" id="gmail-dot"></div>
+        <span class="conn-label">Gmail</span>
+        <span class="conn-status" id="gmail-status-text">בודק...</span>
+        <button class="btn btn-primary" id="btn-gmail-connect" onclick="connectGmail()">חבר Gmail</button>
+        <button class="btn btn-secondary" id="btn-gmail-disconnect" onclick="disconnectGmail()" style="display:none">נתק</button>
+      </div>
+      <div class="hint">
+        כדי לחבר Gmail:
+        <ol>
+          <li>ב-<a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> → צור פרויקט → אפשר Gmail API וגם Google Calendar API (החיבור הזה כותב גם משימות ליומן שלו)</li>
+          <li>Credentials → OAuth 2.0 Client ID → Web Application</li>
+          <li>הורד JSON ושמור כ-<code>data/client_secrets.json</code></li>
+          <li>לחץ "חבר Gmail" (אם כבר היה מחובר בעבר — יש ללחוץ שוב כדי לאשר גם את הרשאת היומן החדשה)</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-bottom:16px">🗓️ Google Calendar</h2>
+      <div class="conn-row">
+        <div class="conn-dot" id="calendar-dot"></div>
+        <span class="conn-label">Google Calendar</span>
+        <span class="conn-status" id="calendar-status-text">בודק...</span>
+        <button class="btn btn-primary" id="btn-calendar-connect" onclick="connectCalendar()">חבר Google Calendar</button>
+        <button class="btn btn-secondary" id="btn-calendar-disconnect" onclick="disconnectCalendar()" style="display:none">נתק</button>
+      </div>
+      <div class="hint">
+        זה חיבור נפרד לגמרי מ-Gmail — אפשר (ואף מומלץ אם היומנים שלך יושבים בחשבון Google אחר) להתחבר כאן עם
+        חשבון Google שונה מזה ששולח את המיילים, בלי שזה ישפיע על שליחת המיילים הקיימת.
+        לפני החיבור הראשון, באותו פרויקט ב-<a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> שהגדרת ל-Gmail:
+        <ol>
+          <li>אפשר גם את Google Calendar API (לא רק Gmail API)</li>
+          <li>ב-OAuth 2.0 Client ID הקיים → Authorized redirect URIs → הוסף כתובת נוספת: <code id="calendar-redirect-hint"></code></li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-bottom:16px">🗓️ ניהול זמן אישי</h2>
+      <div class="hint" style="margin-bottom:14px">
+        משימות שנשלחות לכתובת "שלי" (למטה) יקבלו שאלת הערכת-זמן בוואטסאפ וישובצו אוטומטית ביומן העסקי.
+        שעות העבודה לפי יום מוגדרות ומעודכנות רק דרך וואטסאפ (למשל: "שלישי 9 עד 20" או "שבת סגור").
+      </div>
+      <div style="margin-bottom:16px;padding:14px 16px;background:var(--grad-light);border-radius:10px;border:1px solid var(--border)">
+        <div style="font-weight:700;font-size:.9rem;color:var(--purple-dark);margin-bottom:8px">🔎 מציאת מזהה צ'אט וואטסאפ ממספר טלפון</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field" style="flex:1;min-width:180px;margin:0">
+            <label>מספר טלפון</label>
+            <input id="phone-to-chatid-input" placeholder="050-1234567" oninput="convertPhoneToChatId()" />
+          </div>
+          <div class="field" style="flex:1;min-width:220px;margin:0">
+            <label>מזהה הצ'אט</label>
+            <input id="phone-to-chatid-result" readonly style="background:#f8f4fc;font-family:monospace" placeholder="972501234567@c.us" />
+          </div>
+          <button class="btn btn-ghost" onclick="usePhoneChatId()">↑ מלא בשדה למטה</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>כתובת המייל "שלי"</label><input id="pt-personal-email" placeholder="office@odcpa.co.il" /></div>
+        <div class="field"><label>מזהה צ'אט וואטסאפ אישי</label><input id="pt-personal-chat" placeholder="9725XXXXXXX@c.us" />
+          <div class="hint">הצ'אט מול המערכת שממנו תיענה לשאלות הערכת-זמן — לא צ'אט של לקוח. אפשר להשתמש בכלי ההמרה שלמעלה.</div>
+        </div>
+        <div class="field">
+          <label>יומן לכתיבת משימות (בחשבון ה-Gmail ששולח את המיילים)</label>
+          <input id="pt-calendar-id" placeholder="primary" />
+          <div class="hint">האירועים תמיד ייכתבו דרך אותו חשבון Google ששולח את המיילים (לא חשבון ה-Calendar הנפרד למטה) — כי זה החשבון שבטוח יש לו הרשאת כתיבה. ברירת המחדל "primary" = היומן הראשי של אותו חשבון.</div>
+        </div>
+      </div>
+      <div class="field" style="margin-top:8px">
+        <label>יומנים לבדיקת פנאי (מהחשבון המחובר ב-"Google Calendar" למעלה)</label>
+        <div class="hint" style="margin-bottom:8px">
+          כל היומנים שצריך לבדוק שאתה פנוי בהם לפני קביעת משימה — יכולים להיות מכמה חשבונות/יומנים, זה רק לקריאה ולא לכתיבה.
+        </div>
+        <button class="btn btn-ghost" type="button" onclick="loadCalendarPicker()">🔄 טען רשימת יומנים</button>
+        <div id="calendar-picker" style="margin-top:10px">
+          <div class="hint">יש לחבר קודם את Google Calendar למעלה, ואז ללחוץ "טען רשימת יומנים".</div>
+        </div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:14px" onclick="savePersonalTaskConfig()">שמור</button>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-bottom:16px">⏰ שעות פעילות</h2>
+      <div class="hint" style="margin-bottom:14px">
+        אלה השעות שהמערכת מתחשבת בהן בפועל כשהיא משבצת משימות. ניתן לערוך כאן, וגם דרך וואטסאפ (למשל "שלישי 9 עד 20" או "שבת סגור") — שני המקומות מסונכרנים לאותה הגדרה.
+      </div>
+      <table style="width:100%;font-size:.9rem;border-collapse:collapse">
+        <thead>
+          <tr style="border-bottom:1.5px solid var(--border)">
+            <th style="text-align:right;padding:6px 4px">יום</th>
+            <th style="padding:6px 4px">פעיל</th>
+            <th style="padding:6px 4px">משעה</th>
+            <th style="padding:6px 4px">עד שעה</th>
+          </tr>
+        </thead>
+        <tbody id="work-hours-tbody"></tbody>
+      </table>
+      <button class="btn btn-primary" style="margin-top:14px" onclick="saveWorkHours()">שמור שעות עבודה</button>
+    </div>
+  </div>
+
+</main>
+
+<!-- ═══ RULE MODAL ═══ -->
+<div class="modal-overlay" id="rule-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-title">כלל חדש</h3>
+      <button onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- FORM -->
+      <div class="modal-form">
+        <div class="field">
+          <label>שם הכלל</label>
+          <input id="rule-name" placeholder="לדוגמה: משימה דחופה" />
+        </div>
+        <div class="field">
+          <label>אמוג'י שמפעיל את הכלל</label>
+          <input id="rule-emoji" placeholder="הקלד אמוג'י (Win + . לפתיחת מקלדת)" />
+          <div class="hint">לפתיחת מקלדת האמוג'י של Windows — לחץ <strong>Win + .</strong></div>
+        </div>
+        <div class="field">
+          <label>שלח מייל אל</label>
+          <input id="rule-email-to" type="email" placeholder="someone@example.com" />
+        </div>
+        <div class="field">
+          <label>שם העובד/ת</label>
+          <input id="rule-employee" placeholder="לדוגמה: מיכל" oninput="updatePreview()" />
+          <div class="hint">השם ישמש ל-AI לניסוח הדוא"ל באופן אישי</div>
+        </div>
+        <div style="background:var(--grad-light);border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;font-size:.85rem;color:var(--purple-dark);line-height:1.7;display:flex;gap:10px;align-items:flex-start">
+          <span style="font-size:1.2rem;flex-shrink:0">✨</span>
+          <span>כותרת הדוא"ל וגוף ההודעה <strong>יוצרו אוטומטית על ידי AI</strong> בהתאם לתוכן ההודעה מהוואטסאפ — כאילו אורן כתב את המשימה אישית.</span>
+        </div>
+      </div>
+
+      <!-- PREVIEW -->
+      <div class="modal-preview">
+        <div class="preview-label">👁️ תצוגה מקדימה</div>
+        <div class="email-preview-frame" id="email-preview-frame">
+          <!-- rendered by JS -->
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveRule()">💾 שמור כלל</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ GROUP EDITOR MODAL ═══ -->
+<div class="modal-overlay" id="group-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="group-modal-title">קבוצה חדשה</h3>
+      <button onclick="closeGroupModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-form" style="width:100%">
+        <div class="field">
+          <label>שם הקבוצה</label>
+          <input id="group-name" placeholder="לדוגמה: לקוחות עם תלוש שכר חודשי" />
+        </div>
+        <div class="field">
+          <label>חיפוש איש קשר</label>
+          <input id="group-contact-search" placeholder="הקלד שם לחיפוש..." oninput="renderGroupContacts()" />
+        </div>
+        <div class="field">
+          <label>בחירת אנשי קשר (<span id="group-selected-count">0</span> נבחרו)</label>
+          <div id="group-contacts-list" style="max-height:320px;overflow-y:auto;border:1.5px solid var(--border);border-radius:10px;padding:8px">
+            <div class="empty"><div class="empty-icon">👥</div>טוען אנשי קשר...</div>
+          </div>
+        </div>
+        <div class="field">
+          <label>הודעה עם כפתורים שתישלח לקבוצה</label>
+          <select id="group-button-msg">
+            <option value="">— ללא —</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>יום בחודש לשליחה</label>
+          <input id="group-send-day" type="number" min="1" max="28" placeholder="לדוגמה: 1" />
+          <div class="hint">ההודעה תישלח אוטומטית בכל חודש ביום זה (בין 1 ל-28)</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeGroupModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveGroup()">💾 שמור קבוצה</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ BUTTON MESSAGE EDITOR MODAL ═══ -->
+<div class="modal-overlay" id="buttonmsg-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="buttonmsg-modal-title">הודעה חדשה עם כפתורים</h3>
+      <button onclick="closeButtonMsgModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-form">
+        <div class="field">
+          <label>שם פנימי (לזיהוי במערכת)</label>
+          <input id="bm-name" placeholder="לדוגמה: בדיקת תלוש שכר חודשי" oninput="updateButtonMsgPreview()" />
+        </div>
+        <div class="field">
+          <label>טקסט ההודעה</label>
+          <textarea id="bm-text" rows="4" placeholder="לדוגמה: שלום {{שם}}, האם להפיק לך תלוש שכר החודש?" oninput="updateButtonMsgPreview()"></textarea>
+          <div class="hint">ניתן להשתמש ב-<code>{{שם}}</code> שיוחלף אוטומטית בשם הלקוח</div>
+        </div>
+        <div id="bm-buttons-fields"></div>
+        <div style="background:var(--grad-light);border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;font-size:.85rem;color:var(--purple-dark);line-height:1.7;display:flex;gap:10px;align-items:flex-start">
+          <span style="font-size:1.2rem;flex-shrink:0">ℹ️</span>
+          <span>הודעות עם כפתורים טעונות <strong>אישור מראש מ-Meta</strong> לפני שניתן לשלוח אותן ללקוחות. ניצור אותן כאן כטיוטה, ונגיש לאישור בנפרד.<br>אם תמלא "שלח מייל אל" עבור כפתור — בלחיצת הלקוח על אותו כפתור יישלח אוטומטית מייל לכתובת זו (באותה לוגיקה שמפעילה הכללים הקיימים). אם תשאיר ריק — התגובה רק תתועד בלוג.</span>
+        </div>
+      </div>
+
+      <!-- PREVIEW -->
+      <div class="modal-preview">
+        <div class="preview-label">👁️ תצוגה מקדימה</div>
+        <div id="buttonmsg-preview-frame" style="background:#e9edf1;border-radius:14px;padding:18px">
+          <div style="background:#fff;border-radius:10px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.12);max-width:280px">
+            <div id="bm-preview-text" style="white-space:pre-wrap;line-height:1.6;color:#222;font-size:.92rem;margin-bottom:10px">שלום [שם], ...</div>
+            <div id="bm-preview-buttons"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeButtonMsgModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveButtonMsg()">💾 שמור הודעה</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const EMOJIS = ['👍','❤️','😂','😮','😢','🙏','✅','🔥','👏','⭐','💪','🎉','👀','💰','✔️','❌','🚀','📌','📞','📧','⏳','⌛','🟡','🟢','🔴'];
+
+const VARS = [
+  { key: '{{sender}}',  label: 'שולח',   icon: '👤' },
+  { key: '{{message}}', label: 'הודעה',  icon: '💬' },
+  { key: '{{emoji}}',   label: 'אמוג\'י', icon: '✨' },
+  { key: '{{time}}',    label: 'זמן',    icon: '🕐' },
+  { key: '{{chat}}',    label: 'צ\'אט',  icon: '💼' },
+];
+
+let editingId = null;
+const LOGO_URL = '/logo.png';
+let rulesCache = {};
+
+// ── nav ──────────────────────────────────────────────────────────────────────
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'rules')    loadRules();
+  if (name === 'tasks')    loadTasks();
+  if (name === 'groups')   loadGroups();
+  if (name === 'buttonmsgs') loadButtonMsgs();
+  if (name === 'log')      loadLog();
+  if (name === 'settings') loadSettings();
+}
+
+// ── rules ─────────────────────────────────────────────────────────────────────
+async function loadRules() {
+  const rules = await (await fetch('/api/rules')).json();
+  const el = document.getElementById('rules-list');
+  if (!rules.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>אין כללים עדיין. לחץ "+ כלל חדש" כדי להוסיף.</div>';
+    return;
+  }
+  rules.forEach(r => { rulesCache[r.id] = r; });
+  el.innerHTML = rules.map(r => `
+    <div class="rule-card">
+      <div class="rule-emoji">${r.emoji || '❓'}</div>
+      <div class="rule-info">
+        <strong>${esc(r.name || 'ללא שם')}</strong>
+        <small>→ ${esc(r.email_to || '')}${r.employee_name ? ' · עובד/ת: ' + esc(r.employee_name) : ''}</small>
+      </div>
+      <span class="${r.active ? 'badge-active' : 'badge-inactive'}" onclick="toggleRule('${r.id}',${!r.active})">
+        ${r.active ? '● פעיל' : '○ כבוי'}
+      </span>
+      <div class="rule-actions">
+        <button class="btn btn-ghost" style="padding:7px 12px" onclick="openEditRule(rulesCache['${r.id}'])">✏️</button>
+        <button class="btn btn-danger" style="padding:7px 12px" onclick="deleteRule('${r.id}')">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+function openNewRule() {
+  editingId = null;
+  document.getElementById('modal-title').textContent = 'כלל חדש';
+  document.getElementById('rule-name').value = '';
+  document.getElementById('rule-emoji').value = '';
+  document.getElementById('rule-email-to').value = '';
+  document.getElementById('rule-employee').value = '';
+  updatePreview();
+  document.getElementById('rule-modal').classList.add('open');
+}
+
+function openEditRule(r) {
+  editingId = r.id;
+  document.getElementById('modal-title').textContent = 'עריכת כלל';
+  document.getElementById('rule-name').value = r.name || '';
+  document.getElementById('rule-emoji').value = r.emoji || '';
+  document.getElementById('rule-email-to').value = r.email_to || '';
+  document.getElementById('rule-employee').value = r.employee_name || '';
+  updatePreview();
+  document.getElementById('rule-modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('rule-modal').classList.remove('open');
+}
+
+async function saveRule() {
+  const rule = {
+    name:          document.getElementById('rule-name').value.trim(),
+    emoji:         document.getElementById('rule-emoji').value.trim(),
+    email_to:      document.getElementById('rule-email-to').value.trim(),
+    employee_name: document.getElementById('rule-employee').value.trim(),
+  };
+  if (!rule.emoji || !rule.email_to) { showToast('אמוג\'י וכתובת מייל הם שדות חובה', true); return; }
+  if (editingId) {
+    await fetch('/api/rules/' + editingId, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(rule) });
+  } else {
+    await fetch('/api/rules', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(rule) });
+  }
+  closeModal();
+  loadRules();
+  showToast('הכלל נשמר בהצלחה ✓');
+}
+
+async function toggleRule(id, active) {
+  await fetch('/api/rules/' + id, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({active}) });
+  loadRules();
+}
+
+async function deleteRule(id) {
+  if (!confirm('למחוק את הכלל?')) return;
+  await fetch('/api/rules/' + id, { method: 'DELETE' });
+  loadRules();
+  showToast('הכלל נמחק');
+}
+
+// ── email preview ─────────────────────────────────────────────────────────────
+function buildEmailHtml(employeeName) {
+  const name = employeeName || '[שם העובד/ת]';
+  const sampleBody = `היי ${name},<br><br>ישראל ישראלי ביקש לעבור על הדוחות הכספיים של הרבעון הראשון.`;
+  return `<div style="font-family:David,Arial,sans-serif;direction:rtl;background:#f4f0f8">
+  <div style="background:linear-gradient(135deg,#4a0a6b 0%,#1a0030 100%);padding:30px 24px;text-align:center">
+    <div style="font-size:26px;font-weight:700;color:#fff;font-family:David,Arial,sans-serif;letter-spacing:1px">אורן דולב</div>
+    <div style="font-size:15px;color:#c084d8;font-family:David,Arial,sans-serif;margin-top:6px;letter-spacing:2px">רואה חשבון</div>
+  </div>
+  <div style="height:5px;background:linear-gradient(90deg,#7B2D8B,#c084d8)"></div>
+  <div style="padding:32px 32px 28px;background:#fff">
+    <div style="font-size:17px;color:#2d2d2d;line-height:1.9;font-family:David,Arial,sans-serif">${sampleBody}</div>
+  </div>
+  <div style="height:1px;background:#e0d0f0;margin:0 32px"></div>
+  <div style="background:linear-gradient(135deg,#1a0030,#4a0a6b);padding:16px;text-align:center;font-size:12px;color:#c084d8;font-family:David,Arial,sans-serif">
+    אורן דולב — רואה חשבון &nbsp;|&nbsp; נשלח אוטומטית ממערכת WhatsApp
+  </div>
+</div>`;
+}
+
+function updatePreview() {
+  const employee = document.getElementById('rule-employee') ? document.getElementById('rule-employee').value : '';
+  const frame = document.getElementById('email-preview-frame');
+  if (frame) frame.innerHTML = buildEmailHtml(employee);
+}
+
+// ── tasks ──────────────────────────────────────────────────────────────────────
+let tasksCache = [];
+let taskSortKey = 'time', taskSortDir = 'desc';
+let taskFilterEmployee = '', taskFilterStatus = '', taskFilterClient = '', taskFilterMonth = '';
+const HE_MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+
+async function loadTasks() {
+  tasksCache = await (await fetch('/api/tasks')).json();
+  renderTasks();
+}
+
+function setTaskSort(key) {
+  if (taskSortKey === key) {
+    taskSortDir = (taskSortDir === 'asc') ? 'desc' : 'asc';
+  } else {
+    taskSortKey = key;
+    taskSortDir = (key === 'time') ? 'desc' : 'asc';
+  }
+  renderTasks();
+}
+
+function setTaskFilter(kind, value) {
+  if (kind === 'employee') taskFilterEmployee = value;
+  if (kind === 'status')   taskFilterStatus = value;
+  if (kind === 'client')   taskFilterClient = value;
+  if (kind === 'month')    taskFilterMonth = value;
+  renderTasks();
+}
+
+function taskMonthKey(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+
+function taskMonthLabel(key) {
+  const [y, m] = key.split('-');
+  return HE_MONTHS[parseInt(m,10)-1] + ' ' + y;
+}
+
+function sortArrow(key) {
+  const active = taskSortKey === key;
+  const arrow = active ? (taskSortDir === 'asc' ? '▲' : '▼') : '▲▼';
+  return `<span class="sort-arrow ${active ? 'active' : ''}">${arrow}</span>`;
+}
+
+function renderTasks() {
+  const el = document.getElementById('tasks-list');
+
+  let tasks = tasksCache.slice();
+  if (taskFilterEmployee) tasks = tasks.filter(t => t.employee_name === taskFilterEmployee);
+  if (taskFilterStatus)   tasks = tasks.filter(t => (t.status || 'pending') === taskFilterStatus);
+  if (taskFilterClient)   tasks = tasks.filter(t => t.sender_name === taskFilterClient);
+  if (taskFilterMonth)    tasks = tasks.filter(t => taskMonthKey(t.time) === taskFilterMonth);
+
+  const dir = taskSortDir === 'asc' ? 1 : -1;
+  tasks.sort((a, b) => {
+    const aDone = a.status === 'done', bDone = b.status === 'done';
+    if (aDone !== bDone) return aDone ? 1 : -1;
+    if (aDone && bDone) return new Date(b.completed_at||0) - new Date(a.completed_at||0);
+
+    if (taskSortKey === 'time')     return dir * (new Date(a.time) - new Date(b.time));
+    if (taskSortKey === 'employee') return dir * (a.employee_name||'').localeCompare(b.employee_name||'', 'he');
+    if (taskSortKey === 'client')   return dir * (a.sender_name||'').localeCompare(b.sender_name||'', 'he');
+    if (taskSortKey === 'status')   return dir * (a.status||'pending').localeCompare(b.status||'pending');
+    return 0;
+  });
+
+  const employees = [...new Set(tasksCache.map(t => t.employee_name).filter(Boolean))].sort((a,b) => a.localeCompare(b,'he'));
+  const empOptions = '<option value="">הכל</option>' + employees.map(e =>
+    `<option value="${esc(e)}" ${taskFilterEmployee===e?'selected':''}>${esc(e)}</option>`).join('');
+  const statusOptions = `
+    <option value="" ${taskFilterStatus===''?'selected':''}>הכל</option>
+    <option value="pending" ${taskFilterStatus==='pending'?'selected':''}>ממתינות</option>
+    <option value="done" ${taskFilterStatus==='done'?'selected':''}>בוצעו</option>`;
+
+  const clients = [...new Set(tasksCache.map(t => t.sender_name).filter(Boolean))].sort((a,b) => a.localeCompare(b,'he'));
+  const clientOptions = '<option value="">הכל</option>' + clients.map(c =>
+    `<option value="${esc(c)}" ${taskFilterClient===c?'selected':''}>${esc(c)}</option>`).join('');
+
+  const months = [...new Set(tasksCache.map(t => taskMonthKey(t.time)).filter(Boolean))].sort().reverse();
+  const monthOptions = '<option value="">הכל</option>' + months.map(m =>
+    `<option value="${m}" ${taskFilterMonth===m?'selected':''}>${esc(taskMonthLabel(m))}</option>`).join('');
+
+  const header = `<tr>
+      <th>
+        <select onclick="event.stopPropagation()" onchange="setTaskFilter('status', this.value)" title="סינון לפי ביצוע">${statusOptions}</select>
+      </th>
+      <th class="sortable" onclick="setTaskSort('time')">
+        זמן ${sortArrow('time')}<br>
+        <select onclick="event.stopPropagation()" onchange="setTaskFilter('month', this.value)">${monthOptions}</select>
+      </th>
+      <th class="sortable" onclick="setTaskSort('client')">
+        לקוח ${sortArrow('client')}<br>
+        <select onclick="event.stopPropagation()" onchange="setTaskFilter('client', this.value)">${clientOptions}</select>
+      </th>
+      <th class="sortable" onclick="setTaskSort('employee')">
+        עובד/ת ${sortArrow('employee')}<br>
+        <select onclick="event.stopPropagation()" onchange="setTaskFilter('employee', this.value)">${empOptions}</select>
+      </th>
+      <th>נושא המשימה</th>
+      <th>כלל</th>
+      <th class="sortable" onclick="setTaskSort('status')">
+        סטטוס ${sortArrow('status')}<br>
+        <select onclick="event.stopPropagation()" onchange="setTaskFilter('status', this.value)">${statusOptions}</select>
+      </th>
+    </tr>`;
+
+  if (!tasks.length) {
+    el.innerHTML = `<table class="log-table"><thead>${header}</thead></table>
+      <div class="empty"><div class="empty-icon">✅</div>אין משימות להצגה.</div>`;
+    return;
+  }
+
+  el.innerHTML = `<table class="log-table">
+    <thead>${header}</thead>
+    <tbody>${tasks.map(t => {
+      const done = t.status === 'done';
+      return `
+      <tr class="${done ? 'done' : ''}">
+        <td><div class="task-check ${done ? 'checked' : ''}" onclick="toggleTask('${t.id}', ${!done})" title="${done ? 'סמן כלא בוצע' : 'סמן כבוצע'}">${done ? '✓' : ''}</div></td>
+        <td style="white-space:nowrap;font-size:.82rem">${fmtTime(t.time)}</td>
+        <td>${esc(t.sender_name||'')}</td>
+        <td>${esc(t.employee_name||'')}</td>
+        <td>${esc(t.subject || t.rule_name || '')}</td>
+        <td style="font-size:1.2rem;text-align:center">${esc(t.emoji||'')}</td>
+        <td class="${done ? 'status-sent' : 'status-no_rule'}">${done ? '✅ בוצעה' + (t.completed_at ? ' · ' + fmtTime(t.completed_at) : '') : '⏳ ממתינה'}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table>`;
+}
+
+async function toggleTask(id, makeDone) {
+  await fetch('/api/tasks/' + id, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status: makeDone ? 'done' : 'pending'})
+  });
+  await loadTasks();
+  showToast(makeDone ? 'המשימה סומנה כבוצעה ✓' : 'המשימה סומנה כממתינה');
+}
+
+// ── log ────────────────────────────────────────────────────────────────────────
+async function loadLog() {
+  const entries = await (await fetch('/api/log')).json();
+  const el = document.getElementById('log-container');
+  const statsRow = document.getElementById('stats-row');
+
+  if (!entries.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">📜</div>אין פעולות עדיין.</div>';
+    statsRow.style.display = 'none';
+    return;
+  }
+
+  const sent = entries.filter(e => e.status === 'sent').length;
+  const err  = entries.filter(e => e.status === 'error').length;
+  const norule = entries.filter(e => e.status === 'no_rule').length;
+  document.getElementById('stat-sent').textContent = sent;
+  document.getElementById('stat-error').textContent = err;
+  document.getElementById('stat-norule').textContent = norule;
+  statsRow.style.display = 'flex';
+
+  el.innerHTML = `<table class="log-table">
+    <thead><tr><th>זמן</th><th>אמוג'י</th><th>שולח</th><th>מייל נשלח אל</th><th>כלל</th><th>סטטוס</th></tr></thead>
+    <tbody>${entries.map(e => `
+      <tr>
+        <td style="white-space:nowrap;font-size:.82rem">${fmtTime(e.time)}</td>
+        <td style="font-size:1.4rem;text-align:center">${esc(e.emoji||'')}</td>
+        <td>${esc(e.sender_name||e.sender||'')}</td>
+        <td>${esc(e.email_to||'')}</td>
+        <td>${esc(e.rule_name||'')}</td>
+        <td class="status-${e.status||''}">${statusLabel(e.status)}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function statusLabel(s) {
+  if (s === 'sent') return '✅ נשלח';
+  if (s === 'error') return '❌ שגיאה';
+  if (s === 'no_rule') return '⚠️ ללא כלל';
+  return s || '';
+}
+
+// ── settings ──────────────────────────────────────────────────────────────────
+let selectedBusyCalendars = [];
+
+async function loadSettings() {
+  document.getElementById('webhook-url').value = window.location.origin + '/webhook';
+  document.getElementById('calendar-redirect-hint').textContent = window.location.origin + '/api/calendar/callback';
+  const cfg = await (await fetch('/api/config')).json();
+  document.getElementById('green-instance').value = cfg.green_instance_id || '';
+  document.getElementById('green-token').value    = cfg.green_api_token   || '';
+  document.getElementById('pt-personal-email').value = cfg.personal_email || 'office@odcpa.co.il';
+  document.getElementById('pt-personal-chat').value  = cfg.personal_whatsapp_chat_id || '';
+  document.getElementById('pt-calendar-id').value    = cfg.business_calendar_id || 'primary';
+  selectedBusyCalendars = cfg.busy_calendar_ids || [];
+  checkGmailStatus();
+  checkCalendarStatus();
+  loadContactsStatus();
+  loadWorkHours();
+  const intervalRes = await (await fetch('/api/contacts/interval')).json();
+  document.getElementById('contacts-interval').value = intervalRes.mins || 60;
+}
+
+const WORK_HOUR_DAYS = [
+  ['sunday', 'ראשון'], ['monday', 'שני'], ['tuesday', 'שלישי'], ['wednesday', 'רביעי'],
+  ['thursday', 'חמישי'], ['friday', 'שישי'], ['saturday', 'שבת'],
+];
+
+async function loadWorkHours() {
+  const workHours = await (await fetch('/api/work-hours')).json();
+  const tbody = document.getElementById('work-hours-tbody');
+  tbody.innerHTML = WORK_HOUR_DAYS.map(([key, label]) => {
+    const d = workHours[key] || {active: false, start: '09:00', end: '18:00'};
+    return `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 4px">${label}</td>
+        <td style="text-align:center;padding:6px 4px">
+          <input type="checkbox" id="wh-active-${key}" ${d.active ? 'checked' : ''}>
+        </td>
+        <td style="text-align:center;padding:6px 4px">
+          <input type="time" id="wh-start-${key}" value="${esc(d.start)}">
+        </td>
+        <td style="text-align:center;padding:6px 4px">
+          <input type="time" id="wh-end-${key}" value="${esc(d.end)}">
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+async function saveWorkHours() {
+  const payload = {};
+  const badDays = [];
+  for (const [key, label] of WORK_HOUR_DAYS) {
+    const entry = {
+      active: document.getElementById(`wh-active-${key}`).checked,
+      start:  document.getElementById(`wh-start-${key}`).value,
+      end:    document.getElementById(`wh-end-${key}`).value,
+    };
+    if (entry.active && entry.start >= entry.end) badDays.push(label);
+    payload[key] = entry;
+  }
+  if (badDays.length) {
+    showToast('שעת הסיום חייבת להיות אחרי ההתחלה — בדוק את: ' + badDays.join(', '), true);
+    return;
+  }
+  const res = await fetch('/api/work-hours', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+  });
+  const result = await res.json();
+  if (!res.ok) { showToast(result.error || 'שגיאה בשמירה', true); return; }
+  showToast('שעות הפעילות נשמרו ✓');
+}
+
+async function saveGreenConfig() {
+  await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+    green_instance_id: document.getElementById('green-instance').value.trim(),
+    green_api_token:   document.getElementById('green-token').value.trim(),
+  })});
+  showToast('הגדרות GREEN API נשמרו ✓');
+}
+
+function convertPhoneToChatId() {
+  const raw = document.getElementById('phone-to-chatid-input').value;
+  let digits = (raw || '').replace(/\D/g, '');
+  const resultEl = document.getElementById('phone-to-chatid-result');
+  if (!digits) { resultEl.value = ''; return; }
+  if (!digits.startsWith('972')) {
+    digits = digits.startsWith('0') ? '972' + digits.slice(1) : '972' + digits;
+  }
+  resultEl.value = digits + '@c.us';
+}
+
+function usePhoneChatId() {
+  const result = document.getElementById('phone-to-chatid-result').value;
+  if (!result) { showToast('קודם הזן מספר טלפון', true); return; }
+  document.getElementById('pt-personal-chat').value = result;
+  showToast('הועתק לשדה מזהה הצ׳אט — לא לשכוח ללחוץ שמור ✓');
+}
+
+async function savePersonalTaskConfig() {
+  const busyCalendars = Array.from(document.querySelectorAll('.busy-calendar-cb:checked')).map(cb => cb.value);
+
+  await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+    personal_email:            document.getElementById('pt-personal-email').value.trim(),
+    personal_whatsapp_chat_id: document.getElementById('pt-personal-chat').value.trim(),
+    business_calendar_id:      document.getElementById('pt-calendar-id').value.trim() || 'primary',
+    busy_calendar_ids:         busyCalendars,
+  })});
+  selectedBusyCalendars = busyCalendars;
+  showToast('הגדרות ניהול הזמן נשמרו ✓');
+}
+
+async function saveContactsInterval() {
+  const mins = parseInt(document.getElementById('contacts-interval').value) || 60;
+  await fetch('/api/contacts/interval', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mins})
+  });
+  showToast('תדירות הרענון עודכנה — כל ' + mins + ' דקות ✓');
+}
+
+async function loadContactsStatus() {
+  const res = await (await fetch('/api/contacts/status')).json();
+  const el = document.getElementById('contacts-status');
+  if (res.count > 0) {
+    const t = res.updated ? ' · עודכן ' + fmtTime(res.updated) : '';
+    el.textContent = res.count + ' אנשי קשר שמורים' + t;
+  } else {
+    el.textContent = 'לא נטענו אנשי קשר — לחץ רענן';
+  }
+}
+
+async function refreshContacts() {
+  const btn = document.getElementById('btn-refresh-contacts');
+  const el  = document.getElementById('contacts-status');
+  btn.disabled = true;
+  el.textContent = 'טוען אנשי קשר...';
+  const res = await (await fetch('/api/contacts/refresh', {method:'POST'})).json();
+  btn.disabled = false;
+  if (res.ok) {
+    el.textContent = res.count + ' אנשי קשר נטענו בהצלחה · ' + fmtTime(res.updated);
+    showToast('✓ ' + res.count + ' אנשי קשר עודכנו');
+  } else {
+    el.textContent = 'שגיאה בטעינה';
+    showToast('שגיאה בטעינת אנשי קשר', true);
+  }
+}
+
+async function testGreen() {
+  const dot = document.getElementById('green-dot');
+  const txt = document.getElementById('green-status-text');
+  txt.textContent = 'בודק...';
+  await saveGreenConfig();
+  const res = await (await fetch('/api/green/test', {method:'POST'})).json();
+  if (res.ok) { dot.className='conn-dot ok'; txt.textContent='מחובר · ' + (res.state||''); }
+  else { dot.className='conn-dot err'; txt.textContent='שגיאה: '+(res.error||''); }
+}
+
+async function checkGmailStatus() {
+  const res = await (await fetch('/api/gmail/status')).json();
+  const dot = document.getElementById('gmail-dot');
+  const txt = document.getElementById('gmail-status-text');
+  const btnC = document.getElementById('btn-gmail-connect');
+  const btnD = document.getElementById('btn-gmail-disconnect');
+  if (res.connected) {
+    dot.className='conn-dot ok'; txt.textContent='מחובר';
+    btnC.style.display='none'; btnD.style.display='';
+  } else {
+    dot.className='conn-dot err'; txt.textContent='לא מחובר';
+    btnC.style.display=''; btnD.style.display='none';
+  }
+}
+
+async function connectGmail() {
+  const res = await (await fetch('/api/gmail/auth-url')).json();
+  if (res.error) { showToast('שגיאה: '+res.error, true); return; }
+  window.open(res.url, '_blank', 'width=520,height=640');
+  const poll = setInterval(async () => {
+    const s = await (await fetch('/api/gmail/status')).json();
+    if (s.connected) { clearInterval(poll); checkGmailStatus(); showToast('Gmail חובר בהצלחה ✓'); }
+  }, 2000);
+}
+
+async function disconnectGmail() {
+  if (!confirm('לנתק Gmail?')) return;
+  await fetch('/api/gmail/disconnect', {method:'POST'});
+  checkGmailStatus();
+}
+
+// ── Google Calendar connection (separate account from Gmail) ──────────────────
+async function checkCalendarStatus() {
+  const res = await (await fetch('/api/calendar/status')).json();
+  const dot = document.getElementById('calendar-dot');
+  const txt = document.getElementById('calendar-status-text');
+  const btnC = document.getElementById('btn-calendar-connect');
+  const btnD = document.getElementById('btn-calendar-disconnect');
+  if (res.connected) {
+    dot.className='conn-dot ok'; txt.textContent='מחובר';
+    btnC.style.display='none'; btnD.style.display='';
+    loadCalendarPicker();
+  } else {
+    dot.className='conn-dot err'; txt.textContent='לא מחובר';
+    btnC.style.display=''; btnD.style.display='none';
+  }
+}
+
+async function connectCalendar() {
+  const res = await (await fetch('/api/calendar/auth-url')).json();
+  if (res.error) { showToast('שגיאה: '+res.error, true); return; }
+  window.open(res.url, '_blank', 'width=520,height=640');
+  const poll = setInterval(async () => {
+    const s = await (await fetch('/api/calendar/status')).json();
+    if (s.connected) { clearInterval(poll); checkCalendarStatus(); showToast('Google Calendar חובר בהצלחה ✓'); }
+  }, 2000);
+}
+
+async function disconnectCalendar() {
+  if (!confirm('לנתק את Google Calendar?')) return;
+  await fetch('/api/calendar/disconnect', {method:'POST'});
+  checkCalendarStatus();
+  document.getElementById('calendar-picker').innerHTML =
+    '<div class="hint">יש לחבר קודם את Google Calendar למעלה, ואז ללחוץ "טען רשימת יומנים".</div>';
+}
+
+let calendarsCache = [];
+
+async function loadCalendarPicker() {
+  const el = document.getElementById('calendar-picker');
+  el.innerHTML = '<div class="hint">טוען יומנים...</div>';
+  const res = await (await fetch('/api/calendars')).json();
+  if (!res.ok) {
+    el.innerHTML = `<div class="hint">שגיאה בטעינת יומנים: ${esc(res.error||'')} — ודא שחיברת את Google Calendar למעלה.</div>`;
+    return;
+  }
+  calendarsCache = res.calendars || [];
+  renderCalendarPicker();
+}
+
+function renderCalendarPicker() {
+  const el = document.getElementById('calendar-picker');
+  if (!calendarsCache.length) {
+    el.innerHTML = '<div class="hint">לא נמצאו יומנים בחשבון המחובר.</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table style="width:100%;font-size:.88rem;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1.5px solid var(--border)">
+          <th style="text-align:right;padding:6px 4px">יומן</th>
+          <th style="padding:6px 4px">בדיקת פנאי</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${calendarsCache.map(c => `
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:6px 4px">${esc(c.summary)}${c.primary ? ' <span class="hint" style="display:inline">(ראשי)</span>' : ''}</td>
+            <td style="text-align:center;padding:6px 4px">
+              <input type="checkbox" class="busy-calendar-cb" value="${esc(c.id)}" ${selectedBusyCalendars.includes(c.id) ? 'checked' : ''}>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ── groups ────────────────────────────────────────────────────────────────────
+let groupsCache = [];
+let contactsCache = [];
+let groupEditingId = null;
+let groupSelectedMembers = new Set();
+
+async function loadGroups() {
+  groupsCache = await (await fetch('/api/groups')).json();
+  if (!buttonMsgsCache.length) buttonMsgsCache = await (await fetch('/api/button-messages')).json();
+  renderGroups();
+}
+
+function renderGroups() {
+  const el = document.getElementById('groups-list');
+  if (!groupsCache.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">👥</div>אין קבוצות עדיין. לחץ "+ קבוצה חדשה" כדי להוסיף.</div>';
+    return;
+  }
+  el.innerHTML = groupsCache.map(g => `
+    <div class="rule-card">
+      <div class="rule-emoji">👥</div>
+      <div class="rule-info">
+        <strong>${esc(g.name || 'ללא שם')}</strong>
+        <small>${(g.members||[]).length} אנשי קשר${groupScheduleLabel(g)} · עודכן ${fmtTime(g.updated_at)}</small>
+      </div>
+      <div class="rule-actions">
+        <button class="btn btn-ghost" style="padding:7px 12px" onclick="openEditGroup('${g.id}')">✏️</button>
+        <button class="btn btn-danger" style="padding:7px 12px" onclick="deleteGroup('${g.id}')">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+async function ensureContactsLoaded() {
+  if (contactsCache.length) return;
+  contactsCache = await (await fetch('/api/contacts')).json();
+}
+
+function groupScheduleLabel(g) {
+  if (!g.button_message_id || !g.send_day) return '';
+  const m = buttonMsgsCache.find(x => x.id === g.button_message_id);
+  return ` · 🔘 ${esc(m ? m.name : 'הודעה')} · כל ${g.send_day} לחודש`;
+}
+
+async function populateGroupButtonMsgSelect(selectedId) {
+  if (!buttonMsgsCache.length) buttonMsgsCache = await (await fetch('/api/button-messages')).json();
+  const sel = document.getElementById('group-button-msg');
+  sel.innerHTML = '<option value="">— ללא —</option>' +
+    buttonMsgsCache.map(m => `<option value="${m.id}" ${m.id === selectedId ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
+}
+
+function renderGroupContacts() {
+  const search = document.getElementById('group-contact-search').value.trim();
+  const el = document.getElementById('group-contacts-list');
+  let list = contactsCache;
+  if (search) list = list.filter(c => (c.name||'').includes(search) || (c.phone||'').includes(search));
+  if (!list.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">👥</div>לא נמצאו אנשי קשר.</div>';
+  } else {
+    el.innerHTML = list.map(c => `
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer" onmouseover="this.style.background='var(--grad-light)'" onmouseout="this.style.background=''">
+        <input type="checkbox" ${groupSelectedMembers.has(c.phone) ? 'checked' : ''} onchange="toggleGroupMember('${c.phone}', this.checked)" />
+        <span><strong>${esc(c.name || c.phone)}</strong>${c.name ? ' · <small>'+esc(c.phone)+'</small>' : ''}</span>
+      </label>`).join('');
+  }
+  document.getElementById('group-selected-count').textContent = groupSelectedMembers.size;
+}
+
+function toggleGroupMember(phone, checked) {
+  if (checked) groupSelectedMembers.add(phone);
+  else groupSelectedMembers.delete(phone);
+  document.getElementById('group-selected-count').textContent = groupSelectedMembers.size;
+}
+
+async function openNewGroup() {
+  groupEditingId = null;
+  groupSelectedMembers = new Set();
+  document.getElementById('group-modal-title').textContent = 'קבוצה חדשה';
+  document.getElementById('group-name').value = '';
+  document.getElementById('group-contact-search').value = '';
+  document.getElementById('group-send-day').value = '';
+  await ensureContactsLoaded();
+  renderGroupContacts();
+  await populateGroupButtonMsgSelect('');
+  document.getElementById('group-modal').classList.add('open');
+}
+
+async function openEditGroup(id) {
+  const g = groupsCache.find(x => x.id === id);
+  if (!g) return;
+  groupEditingId = id;
+  groupSelectedMembers = new Set(g.members || []);
+  document.getElementById('group-modal-title').textContent = 'עריכת קבוצה';
+  document.getElementById('group-name').value = g.name || '';
+  document.getElementById('group-contact-search').value = '';
+  document.getElementById('group-send-day').value = g.send_day || '';
+  await ensureContactsLoaded();
+  renderGroupContacts();
+  await populateGroupButtonMsgSelect(g.button_message_id || '');
+  document.getElementById('group-modal').classList.add('open');
+}
+
+function closeGroupModal() {
+  document.getElementById('group-modal').classList.remove('open');
+}
+
+async function saveGroup() {
+  const name = document.getElementById('group-name').value.trim();
+  if (!name) { showToast('יש להזין שם לקבוצה', true); return; }
+  const sendDayRaw = document.getElementById('group-send-day').value.trim();
+  let sendDay = sendDayRaw ? parseInt(sendDayRaw, 10) : null;
+  if (sendDay !== null && (isNaN(sendDay) || sendDay < 1 || sendDay > 28)) {
+    showToast('יום בחודש חייב להיות בין 1 ל-28', true);
+    return;
+  }
+  const payload = {
+    name,
+    members: Array.from(groupSelectedMembers),
+    button_message_id: document.getElementById('group-button-msg').value,
+    send_day: sendDay,
+  };
+  const url = groupEditingId ? `/api/groups/${groupEditingId}` : '/api/groups';
+  const method = groupEditingId ? 'PUT' : 'POST';
+  const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  if (!res.ok) { showToast('שגיאה בשמירת הקבוצה', true); return; }
+  closeGroupModal();
+  showToast('הקבוצה נשמרה ✓');
+  loadGroups();
+}
+
+async function deleteGroup(id) {
+  if (!confirm('למחוק את הקבוצה?')) return;
+  await fetch(`/api/groups/${id}`, { method: 'DELETE' });
+  loadGroups();
+}
+
+async function testGroupSends() {
+  if (!confirm('פעולה זו תפעיל מיידית שליחה לכל הקבוצות עם הודעה ותזמון משויכים (ללא המתנה ליום הקבוע). אם טוויליו עדיין לא מוגדר — הפעולה רק תתעד "סימולציית שליחה" בהיסטוריה. להמשיך?')) return;
+  const res = await fetch('/api/groups/test-send', { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) showToast('בדיקת השליחה בוצעה — בדוק את ההיסטוריה ✓');
+  else showToast('שגיאה בבדיקת השליחה: ' + (data.error||''), true);
+}
+
+// ── button messages ───────────────────────────────────────────────────────────
+let buttonMsgsCache = [];
+let buttonMsgEditingId = null;
+
+async function loadButtonMsgs() {
+  buttonMsgsCache = await (await fetch('/api/button-messages')).json();
+  renderButtonMsgs();
+}
+
+function renderButtonMsgs() {
+  const el = document.getElementById('buttonmsgs-list');
+  if (!buttonMsgsCache.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🔘</div>אין הודעות עם כפתורים עדיין. לחץ "+ הודעה חדשה" כדי להוסיף.</div>';
+    return;
+  }
+  el.innerHTML = buttonMsgsCache.map(m => `
+    <div class="rule-card">
+      <div class="rule-emoji">🔘</div>
+      <div class="rule-info">
+        <strong>${esc(m.name || 'ללא שם')}</strong>
+        <small>${(m.buttons||[]).map(b => esc(b.label) + (b.email_to ? ' → 📧 '+esc(b.email_to) : '')).join(' · ')}</small>
+      </div>
+      <div class="rule-actions">
+        <button class="btn btn-ghost" style="padding:7px 12px" onclick="openEditButtonMsg('${m.id}')">✏️</button>
+        <button class="btn btn-danger" style="padding:7px 12px" onclick="deleteButtonMsg('${m.id}')">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+function buttonFieldsHtml(i, b) {
+  b = b || {};
+  return `
+    <div style="border:1.5px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
+      <div class="field" style="margin-bottom:10px">
+        <label>כפתור ${i+1}${i > 0 ? ' (אופציונלי)' : ''}</label>
+        <input id="bm-btn-label-${i}" placeholder="${i===0 ? 'לדוגמה: ✅ כן, להפיק' : (i===1 ? 'לדוגמה: ❌ לא הפעם' : '')}" value="${esc(b.label||'')}" oninput="updateButtonMsgPreview()" />
+      </div>
+      <div class="field" style="margin-bottom:10px">
+        <label>בלחיצת הלקוח על כפתור זה — שלח מייל אל</label>
+        <input id="bm-btn-email-${i}" type="email" placeholder="someone@example.com (אופציונלי)" value="${esc(b.email_to||'')}" />
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>שם העובד/ת (לניסוח אישי של המייל ע"י AI)</label>
+        <input id="bm-btn-employee-${i}" placeholder="לדוגמה: מיכל" value="${esc(b.employee_name||'')}" />
+      </div>
+    </div>`;
+}
+
+function renderButtonFieldsEditor(buttons) {
+  buttons = buttons || [];
+  document.getElementById('bm-buttons-fields').innerHTML =
+    [0,1,2].map(i => buttonFieldsHtml(i, buttons[i])).join('');
+}
+
+function readButtonFields() {
+  return [0,1,2].map(i => ({
+    label:         (document.getElementById('bm-btn-label-'+i).value || '').trim(),
+    email_to:      (document.getElementById('bm-btn-email-'+i).value || '').trim(),
+    employee_name: (document.getElementById('bm-btn-employee-'+i).value || '').trim(),
+  })).filter(b => b.label);
+}
+
+function updateButtonMsgPreview() {
+  const text = document.getElementById('bm-text').value.trim() || 'שלום [שם], ...';
+  document.getElementById('bm-preview-text').textContent = text;
+  const buttons = readButtonFields();
+  const btnsEl = document.getElementById('bm-preview-buttons');
+  if (!buttons.length) {
+    btnsEl.innerHTML = '';
+    return;
+  }
+  btnsEl.innerHTML = buttons.map(b => `
+    <div style="border-top:1px solid #e5e7eb;text-align:center;padding:9px 0;color:#00897B;font-weight:600;font-size:.9rem">${esc(b.label)}</div>
+  `).join('');
+}
+
+function openNewButtonMsg() {
+  buttonMsgEditingId = null;
+  document.getElementById('buttonmsg-modal-title').textContent = 'הודעה חדשה עם כפתורים';
+  document.getElementById('bm-name').value = '';
+  document.getElementById('bm-text').value = '';
+  renderButtonFieldsEditor([]);
+  updateButtonMsgPreview();
+  document.getElementById('buttonmsg-modal').classList.add('open');
+}
+
+function openEditButtonMsg(id) {
+  const m = buttonMsgsCache.find(x => x.id === id);
+  if (!m) return;
+  buttonMsgEditingId = id;
+  document.getElementById('buttonmsg-modal-title').textContent = 'עריכת הודעה';
+  document.getElementById('bm-name').value = m.name || '';
+  document.getElementById('bm-text').value = m.text || '';
+  renderButtonFieldsEditor(m.buttons || []);
+  updateButtonMsgPreview();
+  document.getElementById('buttonmsg-modal').classList.add('open');
+}
+
+function closeButtonMsgModal() {
+  document.getElementById('buttonmsg-modal').classList.remove('open');
+}
+
+async function saveButtonMsg() {
+  const name = document.getElementById('bm-name').value.trim();
+  const text = document.getElementById('bm-text').value.trim();
+  const buttons = readButtonFields();
+  if (!name || !text || !buttons.length) { showToast('יש למלא שם, טקסט הודעה ולפחות כפתור אחד עם תווית', true); return; }
+  const payload = { name, text, buttons };
+  const url = buttonMsgEditingId ? `/api/button-messages/${buttonMsgEditingId}` : '/api/button-messages';
+  const method = buttonMsgEditingId ? 'PUT' : 'POST';
+  const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  if (!res.ok) { showToast('שגיאה בשמירת ההודעה', true); return; }
+  closeButtonMsgModal();
+  showToast('ההודעה נשמרה ✓');
+  loadButtonMsgs();
+}
+
+async function deleteButtonMsg(id) {
+  if (!confirm('למחוק את ההודעה?')) return;
+  await fetch(`/api/button-messages/${id}`, { method: 'DELETE' });
+  loadButtonMsgs();
+}
+
+// ── utils ──────────────────────────────────────────────────────────────────────
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtTime(iso) { try { return new Date(iso).toLocaleString('he-IL'); } catch { return iso||''; } }
+
+function showToast(msg, isError=false) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = `position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
+    background:${isError?'#c62828':'linear-gradient(135deg,#7B2D8B,#4a0a6b)'};
+    color:#fff;padding:11px 26px;border-radius:28px;z-index:9999;font-size:.9rem;
+    font-weight:700;box-shadow:0 4px 20px rgba(0,0,0,.25)`;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// ── init ───────────────────────────────────────────────────────────────────────
+loadRules();
+</script>
+</body>
+</html>
