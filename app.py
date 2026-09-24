@@ -1278,6 +1278,10 @@ def _poll_unread_counts():
         return
 
     unread_counts = {c.get("id"): c.get("unreadCount", 0) for c in chats if isinstance(c, dict)}
+    log.info(
+        "Unread polling: tracked chats=%s live counts=%s",
+        tracked_chat_ids, {cid: unread_counts.get(cid, "missing-from-getChats") for cid in tracked_chat_ids}
+    )
     still_unread_chat_ids = {
         chat_id for chat_id in tracked_chat_ids
         if unread_counts.get(chat_id, 0) > 0
@@ -1446,10 +1450,16 @@ def _handle_negotiation_reply(t: dict, text: str, chat_id: str):
 _INBOX_MESSAGE_KINDS = {
     "textMessage": "text",
     "extendedTextMessage": "text",
+    # GREEN API sometimes labels a quoted reply "quotedMessage" instead of
+    # extendedTextMessage (confirmed earlier in this project for the personal
+    # bot chat) — the real typed text still lands in extendedTextMessageData,
+    # which the existing dual-path extraction below already checks.
+    "quotedMessage": "text",
     "documentMessage": "document",
     "imageMessage": "image",
     "videoMessage": "video",
     "audioMessage": "audio",
+    "pttMessage": "audio",
 }
 
 _INBOX_MEDIA_LABELS = {
@@ -1468,8 +1478,14 @@ def _handle_inbox_message(payload, body, msg_data_outer, type_webhook):
     GREEN API's own unreadCount, not by anything here."""
     if type_webhook != "incomingMessageReceived":
         return
-    kind = _INBOX_MESSAGE_KINDS.get(msg_data_outer.get("typeMessage", ""))
+    type_message = msg_data_outer.get("typeMessage", "")
+    kind = _INBOX_MESSAGE_KINDS.get(type_message)
     if not kind:
+        if type_message and type_message != "reactionMessage":
+            log.warning(
+                "Inbox: unrecognized incoming typeMessage=%r — full payload: %s",
+                type_message, json.dumps(payload)
+            )
         return
 
     cfg = load_config()
@@ -1502,6 +1518,10 @@ def _handle_inbox_message(payload, body, msg_data_outer, type_webhook):
         text = file_data.get("caption") or None
 
     if not text and not attachment_name:
+        log.warning(
+            "Inbox: recognized kind=%r but extracted no text/attachment — full payload: %s",
+            kind, json.dumps(payload)
+        )
         return
 
     append_inbox_entry({
@@ -1512,7 +1532,7 @@ def _handle_inbox_message(payload, body, msg_data_outer, type_webhook):
         "sender_name": sender_name,
         "text": text,
         "attachment_name": attachment_name,
-        "time": datetime.utcnow().isoformat(),
+        "time": datetime.now(timezone.utc).isoformat(),
     })
 
 
