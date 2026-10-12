@@ -64,6 +64,12 @@ GROUPS_FILE = DATA_DIR / "groups.json"
 BUTTON_MSGS_FILE = DATA_DIR / "button_messages.json"
 CONFIG_FILE = DATA_DIR / "config.json"
 TOKEN_FILE          = DATA_DIR / "gmail_token.json"
+
+# In-memory cache: idMessage → message text, populated when text messages arrive
+# so that subsequent reaction webhooks can retrieve the original text locally
+# without calling getChatHistory (which times out on Railway).
+_msg_text_cache: dict = {}
+_MSG_CACHE_MAX = 500  # keep only the most recent N messages
 CALENDAR_TOKEN_FILE = DATA_DIR / "calendar_token.json"
 
 # Two separate Google connections:
@@ -347,6 +353,16 @@ def save_calendar_token(token_dict):
 
 def generate_email_content(sender_name: str, message: str, employee_name: str) -> dict:
     """Call OpenAI API to generate a human-sounding email subject and body."""
+    if not message or not message.strip():
+        log.warning("generate_email_content: empty message for sender=%r — skipping AI", sender_name)
+        return {
+            "subject": f"{sender_name} — הודעה חדשה (תוכן לא זמין)",
+            "body": (
+                f"היי {employee_name},\n\n"
+                f"{sender_name} שלח/ה הודעה בוואטסאפ.\n"
+                f"לא הצלחנו לחלץ את תוכן ההודעה אוטומטית — אנא בדוק/י ישירות בוואטסאפ."
+            )
+        }
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key or not OPENAI_AVAILABLE:
         log.warning("OpenAI API key missing or library not installed — using fallback")
@@ -1765,6 +1781,21 @@ def webhook():
     msg_data_outer = payload.get("messageData", {}) or body.get("messageData", {})
     type_message = msg_data_outer.get("typeMessage", "")
     log.info("typeWebhook=%s typeMessage=%s", type_, type_message)
+
+    # Cache incoming text so reaction webhooks can look up original text locally
+    if type_ == "incomingMessageReceived" and type_message in ("textMessage", "extendedTextMessage"):
+        id_msg = payload.get("idMessage") or body.get("idMessage", "")
+        incoming_text = (
+            (msg_data_outer.get("textMessageData") or {}).get("textMessage", "")
+            or (msg_data_outer.get("extendedTextMessageData") or {}).get("text", "")
+        )
+        if id_msg and incoming_text:
+            _msg_text_cache[id_msg] = incoming_text
+            if len(_msg_text_cache) > _MSG_CACHE_MAX:
+                oldest = next(iter(_msg_text_cache))
+                del _msg_text_cache[oldest]
+            log.info("Cached text for idMessage=%r (cache size=%d)", id_msg, len(_msg_text_cache))
+
     is_reaction = (
         type_ in ("outgoingMessageReaction", "incomingMessageReaction")
         or type_message == "reactionMessage"
@@ -1814,8 +1845,12 @@ def webhook():
         or ""
     )
     log.info("orig_text from webhook: %r", orig_text[:100] if orig_text else "")
+    stanza_id = quoted.get("stanzaId", "")
+    if not orig_text and stanza_id:
+        orig_text = _msg_text_cache.get(stanza_id, "")
+        if orig_text:
+            log.info("Resolved orig_text from local cache (stanzaId=%r): %r", stanza_id, orig_text[:100])
     if not orig_text and chat_id:
-        stanza_id = quoted.get("stanzaId", "")
         orig_text = get_message_from_history(chat_id, stanza_id)
         log.info("Fetched from history (stanzaId=%r): %r", stanza_id, orig_text[:100] if orig_text else "")
     timestamp  = datetime.utcnow().isoformat()
