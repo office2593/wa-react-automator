@@ -1782,8 +1782,8 @@ def webhook():
     type_message = msg_data_outer.get("typeMessage", "")
     log.info("typeWebhook=%s typeMessage=%s", type_, type_message)
 
-    # Cache incoming text so reaction webhooks can look up original text locally
-    if type_ == "incomingMessageReceived" and type_message in ("textMessage", "extendedTextMessage"):
+    # Cache incoming AND outgoing text so reaction webhooks can look up original text locally
+    if type_ in ("incomingMessageReceived", "outgoingMessageReceived") and type_message in ("textMessage", "extendedTextMessage"):
         id_msg = payload.get("idMessage") or body.get("idMessage", "")
         incoming_text = (
             (msg_data_outer.get("textMessageData") or {}).get("textMessage", "")
