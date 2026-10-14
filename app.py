@@ -69,6 +69,7 @@ TOKEN_FILE          = DATA_DIR / "gmail_token.json"
 # so that subsequent reaction webhooks can retrieve the original text locally
 # without calling getChatHistory (which times out on Railway).
 _msg_text_cache: dict = {}
+_audio_url_cache: dict = {}  # idMessage → download URL for audio messages
 _MSG_CACHE_MAX = 1000  # keep only the most recent N messages
 CALENDAR_TOKEN_FILE = DATA_DIR / "calendar_token.json"
 
@@ -1887,6 +1888,21 @@ def webhook():
                 del _msg_text_cache[oldest]
             log.info("Cached text for idMessage=%r (cache size=%d)", id_msg, len(_msg_text_cache))
 
+    # Cache audio download URL so reaction webhooks can transcribe without re-fetching
+    if type_ in ("incomingMessageReceived", "outgoingMessageReceived") and type_message == "audioMessage":
+        id_msg = payload.get("idMessage") or body.get("idMessage", "")
+        audio_url = (
+            (msg_data_outer.get("fileMessageData") or {}).get("downloadUrl", "")
+            or (msg_data_outer.get("audioMessage") or {}).get("url", "")
+            or (msg_data_outer.get("audioMessage") or {}).get("downloadUrl", "")
+        )
+        if id_msg and audio_url:
+            _audio_url_cache[id_msg] = audio_url
+            if len(_audio_url_cache) > _MSG_CACHE_MAX:
+                oldest = next(iter(_audio_url_cache))
+                del _audio_url_cache[oldest]
+            log.info("Cached audio URL for idMessage=%r", id_msg)
+
     is_reaction = (
         type_ in ("outgoingMessageReaction", "incomingMessageReaction")
         or type_message == "reactionMessage"
@@ -1945,13 +1961,15 @@ def webhook():
         cached = _msg_text_cache.get(stanza_id, "") if stanza_id else ""
         if cached:
             orig_text = cached
-            log.info("Audio transcription: cache hit (stanzaId=%r)", stanza_id)
+            log.info("Audio transcription: text cache hit (stanzaId=%r)", stanza_id)
         else:
-            audio_url = get_audio_url_from_green(stanza_id) if stanza_id else ""
+            audio_url = (_audio_url_cache.get(stanza_id, "") if stanza_id else "") or \
+                        (quoted.get("fileMessageData") or {}).get("downloadUrl", "") or \
+                        quoted.get("downloadUrl", "")
             if audio_url:
                 orig_text = transcribe_audio_url(audio_url, stanza_id)
             else:
-                log.warning("Could not get audio URL for stanzaId=%r", stanza_id)
+                log.warning("No cached audio URL for stanzaId=%r — cannot transcribe", stanza_id)
 
     if not orig_text and stanza_id:
         orig_text = _msg_text_cache.get(stanza_id, "")
