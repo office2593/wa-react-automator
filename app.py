@@ -732,14 +732,15 @@ def transcribe_audio_url(audio_url: str, msg_id: str = "") -> str:
         return ""
 
 
-def get_audio_url_from_green(msg_id: str) -> str:
+def get_audio_url_from_green(msg_id: str, chat_id: str = "") -> str:
     """Get download URL for an audio message from GREEN API."""
     try:
         cfg = load_config()
         if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
             return ""
         url = green_api_url(cfg, "downloadFile")
-        r = http_requests.post(url, json={"chatId": "", "idMessage": msg_id}, timeout=15)
+        r = http_requests.post(url, json={"chatId": chat_id, "idMessage": msg_id}, timeout=15)
+        log.info("downloadFile status=%s body=%s", r.status_code, r.text[:200])
         if r.ok:
             data = r.json()
             return data.get("downloadUrl", "") or data.get("url", "")
@@ -1944,7 +1945,9 @@ def webhook():
     quoted = msg_data_outer.get("quotedMessage", {})
     log.info("quotedMessage: %s", json.dumps(quoted)[:300])
     quoted_type = quoted.get("typeMessage", "")
-    is_audio_reaction = (quoted_type == "audioMessage")
+    stanza_id = quoted.get("stanzaId", "")
+    # GREEN API sometimes omits typeMessage in reaction webhooks — also detect via audio URL cache
+    is_audio_reaction = (quoted_type == "audioMessage") or (bool(stanza_id) and stanza_id in _audio_url_cache)
     orig_text = (
         quoted.get("textMessage", "")
         or quoted.get("caption", "")
@@ -1953,8 +1956,7 @@ def webhook():
         or (quoted.get("extendedTextMessageData") or {}).get("text", "")
         or ""
     )
-    log.info("orig_text from webhook: %r (quoted_type=%r)", orig_text[:100] if orig_text else "", quoted_type)
-    stanza_id = quoted.get("stanzaId", "")
+    log.info("orig_text from webhook: %r (quoted_type=%r is_audio=%s)", orig_text[:100] if orig_text else "", quoted_type, is_audio_reaction)
 
     # for audio reactions: transcribe first (also populates cache for rule flow below)
     if is_audio_reaction and not orig_text:
@@ -1966,10 +1968,12 @@ def webhook():
             audio_url = (_audio_url_cache.get(stanza_id, "") if stanza_id else "") or \
                         (quoted.get("fileMessageData") or {}).get("downloadUrl", "") or \
                         quoted.get("downloadUrl", "")
+            if not audio_url and stanza_id:
+                audio_url = get_audio_url_from_green(stanza_id, chat_id)
             if audio_url:
                 orig_text = transcribe_audio_url(audio_url, stanza_id)
             else:
-                log.warning("No cached audio URL for stanzaId=%r — cannot transcribe", stanza_id)
+                log.warning("No audio URL found for stanzaId=%r — cannot transcribe", stanza_id)
 
     if not orig_text and stanza_id:
         orig_text = _msg_text_cache.get(stanza_id, "")
