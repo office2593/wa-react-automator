@@ -672,6 +672,82 @@ def send_gmail(to: str, subject: str, body_text: str, complete_url: str = ""):
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
 
+# ── Whisper transcription ─────────────────────────────────────────────────────
+
+def transcribe_audio_url(audio_url: str, msg_id: str = "") -> str:
+    """Download audio from GREEN API and transcribe via Whisper.
+    Returns transcription text, or empty string on failure.
+    Uses _msg_text_cache so the same audio is never transcribed twice."""
+    if msg_id and msg_id in _msg_text_cache:
+        log.info("Transcription cache hit for idMessage=%r", msg_id)
+        return _msg_text_cache[msg_id]
+
+    if not OPENAI_AVAILABLE:
+        log.warning("OpenAI not available — cannot transcribe")
+        return ""
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        log.warning("OPENAI_API_KEY not set — cannot transcribe")
+        return ""
+
+    try:
+        log.info("Downloading audio for transcription: %s", audio_url[:80])
+        r = http_requests.get(audio_url, timeout=30)
+        r.raise_for_status()
+        audio_bytes = r.content
+        if len(audio_bytes) > 25 * 1024 * 1024:
+            log.warning("Audio file too large for Whisper (%d bytes)", len(audio_bytes))
+            return ""
+
+        import tempfile, mimetypes
+        content_type = r.headers.get("Content-Type", "audio/ogg")
+        ext = mimetypes.guess_extension(content_type.split(";")[0].strip()) or ".ogg"
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        client = _OpenAI(api_key=api_key)
+        with open(tmp_path, "rb") as f:
+            result = client.audio.transcriptions.create(model="whisper-1", file=f, language="he")
+        text = result.text.strip()
+        log.info("Whisper transcription (msg_id=%r): %r", msg_id, text[:120])
+
+        if msg_id and text:
+            _msg_text_cache[msg_id] = text
+            if len(_msg_text_cache) > _MSG_CACHE_MAX:
+                oldest = next(iter(_msg_text_cache))
+                del _msg_text_cache[oldest]
+
+        import os as _os
+        try:
+            _os.unlink(tmp_path)
+        except Exception:
+            pass
+
+        return text
+    except Exception as e:
+        log.error("Whisper transcription failed: %s", e)
+        return ""
+
+
+def get_audio_url_from_green(msg_id: str) -> str:
+    """Get download URL for an audio message from GREEN API."""
+    try:
+        cfg = load_config()
+        if not cfg.get("green_instance_id") or not cfg.get("green_api_token"):
+            return ""
+        url = green_api_url(cfg, "downloadFile")
+        r = http_requests.post(url, json={"chatId": "", "idMessage": msg_id}, timeout=15)
+        if r.ok:
+            data = r.json()
+            return data.get("downloadUrl", "") or data.get("url", "")
+        return ""
+    except Exception as e:
+        log.warning("Could not get audio URL for msg_id=%r: %s", msg_id, e)
+        return ""
+
+
 # ── GREEN API helper ──────────────────────────────────────────────────────────
 
 def green_api_url(config, method):
@@ -769,8 +845,12 @@ def get_message_from_history(chat_id: str, stanza_id: str = "") -> str:
                     text = extract_text(msg)
                     if text:
                         return text
+            # stanza_id was given but not found — don't fall back to last message
+            # (returning the wrong message is worse than returning nothing)
+            log.warning("getChatHistory: stanzaId=%r not found in %d messages", stanza_id, len(messages))
+            return ""
 
-        # fallback: last non-reaction message
+        # no stanza_id: return last non-reaction message
         for msg in reversed(messages):
             if get_type(msg) == "reactionMessage":
                 continue
@@ -1786,11 +1866,19 @@ def webhook():
     log.info("typeWebhook=%s typeMessage=%s", type_, type_message)
 
     # Cache incoming AND outgoing text so reaction webhooks can look up original text locally
-    if type_ in ("incomingMessageReceived", "outgoingMessageReceived") and type_message in ("textMessage", "extendedTextMessage"):
+    if type_ in ("incomingMessageReceived", "outgoingMessageReceived") and type_message in ("textMessage", "extendedTextMessage", "quotedMessage", "imageMessage", "videoMessage"):
         id_msg = payload.get("idMessage") or body.get("idMessage", "")
+        _qm = msg_data_outer.get("quotedMessage") or {}
         incoming_text = (
             (msg_data_outer.get("textMessageData") or {}).get("textMessage", "")
             or (msg_data_outer.get("extendedTextMessageData") or {}).get("text", "")
+            # quotedMessage type: reply text is nested inside quotedMessage.textMessageData
+            or (_qm.get("textMessageData") or {}).get("textMessage", "")
+            or (_qm.get("extendedTextMessageData") or {}).get("text", "")
+            or _qm.get("textMessage", "")
+            # imageMessage / videoMessage: caption field
+            or (msg_data_outer.get("imageMessage") or {}).get("caption", "")
+            or (msg_data_outer.get("videoMessage") or {}).get("caption", "")
         )
         if id_msg and incoming_text:
             _msg_text_cache[id_msg] = incoming_text
@@ -1839,6 +1927,8 @@ def webhook():
     # extract original message from webhook (quotedMessage contains the reacted-to message)
     quoted = msg_data_outer.get("quotedMessage", {})
     log.info("quotedMessage: %s", json.dumps(quoted)[:300])
+    quoted_type = quoted.get("typeMessage", "")
+    is_audio_reaction = (quoted_type == "audioMessage")
     orig_text = (
         quoted.get("textMessage", "")
         or quoted.get("caption", "")
@@ -1847,8 +1937,22 @@ def webhook():
         or (quoted.get("extendedTextMessageData") or {}).get("text", "")
         or ""
     )
-    log.info("orig_text from webhook: %r", orig_text[:100] if orig_text else "")
+    log.info("orig_text from webhook: %r (quoted_type=%r)", orig_text[:100] if orig_text else "", quoted_type)
     stanza_id = quoted.get("stanzaId", "")
+
+    # for audio reactions: transcribe first (also populates cache for rule flow below)
+    if is_audio_reaction and not orig_text:
+        cached = _msg_text_cache.get(stanza_id, "") if stanza_id else ""
+        if cached:
+            orig_text = cached
+            log.info("Audio transcription: cache hit (stanzaId=%r)", stanza_id)
+        else:
+            audio_url = get_audio_url_from_green(stanza_id) if stanza_id else ""
+            if audio_url:
+                orig_text = transcribe_audio_url(audio_url, stanza_id)
+            else:
+                log.warning("Could not get audio URL for stanzaId=%r", stanza_id)
+
     if not orig_text and stanza_id:
         orig_text = _msg_text_cache.get(stanza_id, "")
         if orig_text:
@@ -1857,6 +1961,20 @@ def webhook():
         orig_text = get_message_from_history(chat_id, stanza_id)
         log.info("Fetched from history (stanzaId=%r): %r", stanza_id, orig_text[:100] if orig_text else "")
     timestamp  = datetime.utcnow().isoformat()
+
+    # transcription emoji: send transcription to personal chat and stop
+    cfg_early = load_config()
+    transcription_emoji = cfg_early.get("transcription_emoji", "")
+    personal_chat_early = cfg_early.get("personal_whatsapp_chat_id", "")
+    if transcription_emoji and reaction == transcription_emoji and personal_chat_early:
+        contact_label = sender_name or get_contact_name(chat_id) or chat_id
+        if orig_text:
+            msg_out = f"🎙️ תמלול | {contact_label}\n\n{orig_text}"
+        else:
+            msg_out = f"🎙️ לא הצלחתי לתמלל את ההקלטה מ-{contact_label}"
+        green_api_send_message(personal_chat_early, msg_out)
+        log.info("Transcription sent to personal chat for stanzaId=%r", stanza_id)
+        return jsonify({"ok": True}), 200
 
     if type_.startswith("incoming"):
         try:

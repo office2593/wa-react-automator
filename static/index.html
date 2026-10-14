@@ -456,6 +456,9 @@
         <div class="field"><label>מזהה צ'אט וואטסאפ אישי</label><input id="pt-personal-chat" placeholder="9725XXXXXXX@c.us" />
           <div class="hint">הצ'אט מול המערכת שממנו תיענה לשאלות הערכת-זמן — לא צ'אט של לקוח. אפשר להשתמש בכלי ההמרה שלמעלה.</div>
         </div>
+        <div class="field"><label>אימוג'י תמלול הקלטות 🎙️</label><input id="pt-transcription-emoji" placeholder="📝" style="max-width:120px" />
+          <div class="hint">כשתגיב על הודעה קולית עם האימוג'י הזה, המערכת תשלח לצ'אט האישי שלך את התמלול המלא של ההקלטה.</div>
+        </div>
         <div class="field">
           <label>יומן לכתיבת משימות (בחשבון ה-Gmail ששולח את המיילים)</label>
           <input id="pt-calendar-id" placeholder="primary" />
@@ -963,9 +966,10 @@ async function loadSettings() {
   const cfg = await (await fetch('/api/config')).json();
   document.getElementById('green-instance').value = cfg.green_instance_id || '';
   document.getElementById('green-token').value    = cfg.green_api_token   || '';
-  document.getElementById('pt-personal-email').value = cfg.personal_email || 'office@odcpa.co.il';
-  document.getElementById('pt-personal-chat').value  = cfg.personal_whatsapp_chat_id || '';
-  document.getElementById('pt-calendar-id').value    = cfg.business_calendar_id || 'primary';
+  document.getElementById('pt-personal-email').value      = cfg.personal_email || 'office@odcpa.co.il';
+  document.getElementById('pt-personal-chat').value       = cfg.personal_whatsapp_chat_id || '';
+  document.getElementById('pt-transcription-emoji').value = cfg.transcription_emoji || '';
+  document.getElementById('pt-calendar-id').value         = cfg.business_calendar_id || 'primary';
   selectedBusyCalendars = cfg.busy_calendar_ids || [];
   checkGmailStatus();
   checkCalendarStatus();
@@ -1057,6 +1061,7 @@ async function savePersonalTaskConfig() {
   await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
     personal_email:            document.getElementById('pt-personal-email').value.trim(),
     personal_whatsapp_chat_id: document.getElementById('pt-personal-chat').value.trim(),
+    transcription_emoji:       document.getElementById('pt-transcription-emoji').value.trim(),
     business_calendar_id:      document.getElementById('pt-calendar-id').value.trim() || 'primary',
     busy_calendar_ids:         busyCalendars,
   })});
