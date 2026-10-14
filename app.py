@@ -658,16 +658,51 @@ def build_email_html(body_text: str, complete_url: str = "") -> str:
 </html>"""
 
 
-def send_gmail(to: str, subject: str, body_text: str, complete_url: str = ""):
+def send_gmail(to: str, subject: str, body_text: str, complete_url: str = "",
+               attachment_url: str = "", attachment_name: str = ""):
     service = get_gmail_service()
-    msg = MIMEMultipart("alternative")
-    msg["To"]      = to
-    msg["Subject"] = subject
-    msg["From"]    = "me"
 
-    plain = body_text + (f"\n\nלאישור ביצוע המשימה: {complete_url}" if complete_url else "")
-    msg.attach(MIMEText(plain, "plain", "utf-8"))
-    msg.attach(MIMEText(build_email_html(body_text, complete_url), "html", "utf-8"))
+    if attachment_url:
+        from email.mime.base import MIMEBase
+        from email import encoders as _encoders
+        import mimetypes
+        outer = MIMEMultipart("mixed")
+        outer["To"]      = to
+        outer["Subject"] = subject
+        outer["From"]    = "me"
+        alt = MIMEMultipart("alternative")
+        plain = body_text + (f"\n\nלאישור ביצוע המשימה: {complete_url}" if complete_url else "")
+        alt.attach(MIMEText(plain, "plain", "utf-8"))
+        alt.attach(MIMEText(build_email_html(body_text, complete_url), "html", "utf-8"))
+        outer.attach(alt)
+        try:
+            r = http_requests.get(attachment_url, timeout=30)
+            r.raise_for_status()
+            file_bytes = r.content
+            if len(file_bytes) <= 24 * 1024 * 1024:  # 24MB Gmail limit
+                ctype, _ = mimetypes.guess_type(attachment_name or attachment_url)
+                if not ctype:
+                    ctype = "application/octet-stream"
+                maintype, subtype = ctype.split("/", 1)
+                part = MIMEBase(maintype, subtype)
+                part.set_payload(file_bytes)
+                _encoders.encode_base64(part)
+                fname = attachment_name or attachment_url.split("/")[-1] or "attachment"
+                part.add_header("Content-Disposition", "attachment", filename=fname)
+                outer.attach(part)
+            else:
+                log.warning("Attachment too large (%d bytes) — skipping", len(file_bytes))
+        except Exception as e:
+            log.warning("Could not attach file: %s", e)
+        msg = outer
+    else:
+        msg = MIMEMultipart("alternative")
+        msg["To"]      = to
+        msg["Subject"] = subject
+        msg["From"]    = "me"
+        plain = body_text + (f"\n\nלאישור ביצוע המשימה: {complete_url}" if complete_url else "")
+        msg.attach(MIMEText(plain, "plain", "utf-8"))
+        msg.attach(MIMEText(build_email_html(body_text, complete_url), "html", "utf-8"))
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
@@ -1958,6 +1993,21 @@ def webhook():
     )
     log.info("orig_text from webhook: %r (quoted_type=%r is_audio=%s)", orig_text[:100] if orig_text else "", quoted_type, is_audio_reaction)
 
+    # extract file attachment info from quoted message (image/video/document)
+    _FILE_TYPES = ("imageMessage", "videoMessage", "documentMessage")
+    quoted_file_data = (quoted.get("fileMessageData") or {})
+    attachment_url  = quoted_file_data.get("downloadUrl", "") or quoted.get("downloadUrl", "")
+    attachment_name = quoted_file_data.get("fileName", "") or quoted.get("fileName", "")
+    # use caption or filename as orig_text fallback for file messages
+    if not orig_text and quoted_type in _FILE_TYPES:
+        orig_text = (
+            quoted_file_data.get("caption", "")
+            or quoted.get("caption", "")
+            or (f"[{attachment_name}]" if attachment_name else f"[{quoted_type.replace('Message','')}]")
+        )
+        log.info("File message: type=%r attachment_url=%r name=%r orig_text=%r",
+                 quoted_type, attachment_url[:60] if attachment_url else "", attachment_name, orig_text)
+
     # for audio reactions: transcribe first (also populates cache for rule flow below)
     if is_audio_reaction and not orig_text:
         cached = _msg_text_cache.get(stanza_id, "") if stanza_id else ""
@@ -2034,7 +2084,8 @@ def webhook():
         complete_token = secrets.token_urlsafe(24)
         complete_url   = f"{request.host_url.rstrip('/')}/task-done/{task_id}?token={complete_token}"
         try:
-            send_gmail(to=to_email, subject=subject, body_text=body_txt, complete_url=complete_url)
+            send_gmail(to=to_email, subject=subject, body_text=body_txt, complete_url=complete_url,
+                       attachment_url=attachment_url, attachment_name=attachment_name)
             append_log({
                 "time": timestamp, "emoji": reaction, "sender": sender,
                 "sender_name": sender_name, "chat": chat_id, "original_text": orig_text,
