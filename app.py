@@ -1933,7 +1933,7 @@ def webhook():
             or (msg_data_outer.get("audioMessage") or {}).get("downloadUrl", "")
         )
         if id_msg and audio_url:
-            _audio_url_cache[id_msg] = audio_url
+            _audio_url_cache[id_msg] = (audio_url, "audioMessage", "")
             if len(_audio_url_cache) > _MSG_CACHE_MAX:
                 oldest = next(iter(_audio_url_cache))
                 del _audio_url_cache[oldest]
@@ -1947,7 +1947,7 @@ def webhook():
         file_name = _fd.get("fileName", "")
         file_caption = _fd.get("caption", "")
         if id_msg and file_url:
-            _audio_url_cache[id_msg] = file_url  # reuse same cache: idMessage → URL
+            _audio_url_cache[id_msg] = (file_url, type_message, file_name)  # (url, type, name)
             _msg_text_cache[id_msg] = file_caption or file_name  # caption or filename as text
             if len(_audio_url_cache) > _MSG_CACHE_MAX:
                 oldest = next(iter(_audio_url_cache))
@@ -1997,7 +1997,8 @@ def webhook():
     quoted_type = quoted.get("typeMessage", "")
     stanza_id = quoted.get("stanzaId", "")
     # GREEN API sometimes omits typeMessage in reaction webhooks — also detect via audio URL cache
-    is_audio_reaction = (quoted_type == "audioMessage") or (bool(stanza_id) and stanza_id in _audio_url_cache)
+    _cached_type_early = (_audio_url_cache.get(stanza_id, ("","",""))[1] if stanza_id and isinstance(_audio_url_cache.get(stanza_id), tuple) else "")
+    is_audio_reaction = (quoted_type == "audioMessage") or _cached_type_early == "audioMessage"
     orig_text = (
         quoted.get("textMessage", "")
         or quoted.get("caption", "")
@@ -2011,10 +2012,16 @@ def webhook():
     # extract file attachment info — first try webhook payload, then local cache
     _FILE_TYPES = ("imageMessage", "videoMessage", "documentMessage")
     quoted_file_data = (quoted.get("fileMessageData") or {})
-    attachment_url  = (quoted_file_data.get("downloadUrl", "") or quoted.get("downloadUrl", "")
-                       or (_audio_url_cache.get(stanza_id, "") if stanza_id else ""))
-    attachment_name = quoted_file_data.get("fileName", "") or quoted.get("fileName", "")
-    is_file_reaction = quoted_type in _FILE_TYPES or (bool(stanza_id) and attachment_url and not is_audio_reaction)
+    _ATTACH_TYPES = ("imageMessage", "documentMessage")  # video and audio excluded
+    _cached_file = _audio_url_cache.get(stanza_id) if stanza_id else None
+    _cached_file_url  = _cached_file[0] if isinstance(_cached_file, tuple) else (_cached_file or "")
+    _cached_file_type = _cached_file[1] if isinstance(_cached_file, tuple) else ""
+    _cached_file_name = _cached_file[2] if isinstance(_cached_file, tuple) else ""
+    attachment_url  = "" if is_audio_reaction or _cached_file_type not in _ATTACH_TYPES else (
+        quoted_file_data.get("downloadUrl", "") or quoted.get("downloadUrl", "") or _cached_file_url
+    )
+    attachment_name = quoted_file_data.get("fileName", "") or quoted.get("fileName", "") or _cached_file_name
+    is_file_reaction = quoted_type in _FILE_TYPES or (bool(stanza_id) and _cached_file_type in _FILE_TYPES)
     # use caption or filename as orig_text fallback for file messages
     if not orig_text and is_file_reaction:
         cached_text = _msg_text_cache.get(stanza_id, "") if stanza_id else ""
@@ -2034,7 +2041,8 @@ def webhook():
             orig_text = cached
             log.info("Audio transcription: text cache hit (stanzaId=%r)", stanza_id)
         else:
-            audio_url = (_audio_url_cache.get(stanza_id, "") if stanza_id else "") or \
+            _ac = _audio_url_cache.get(stanza_id) if stanza_id else None
+            audio_url = (_ac[0] if isinstance(_ac, tuple) else (_ac or "")) or \
                         (quoted.get("fileMessageData") or {}).get("downloadUrl", "") or \
                         quoted.get("downloadUrl", "")
             if not audio_url and stanza_id:
