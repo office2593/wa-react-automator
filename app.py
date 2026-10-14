@@ -1939,6 +1939,21 @@ def webhook():
                 del _audio_url_cache[oldest]
             log.info("Cached audio URL for idMessage=%r", id_msg)
 
+    # Cache file URL + name for image/video/document messages
+    if type_ in ("incomingMessageReceived", "outgoingMessageReceived") and type_message in ("imageMessage", "videoMessage", "documentMessage"):
+        id_msg = payload.get("idMessage") or body.get("idMessage", "")
+        _fd = (msg_data_outer.get("fileMessageData") or {})
+        file_url  = _fd.get("downloadUrl", "")
+        file_name = _fd.get("fileName", "")
+        file_caption = _fd.get("caption", "")
+        if id_msg and file_url:
+            _audio_url_cache[id_msg] = file_url  # reuse same cache: idMessage → URL
+            _msg_text_cache[id_msg] = file_caption or file_name  # caption or filename as text
+            if len(_audio_url_cache) > _MSG_CACHE_MAX:
+                oldest = next(iter(_audio_url_cache))
+                del _audio_url_cache[oldest]
+            log.info("Cached file URL for idMessage=%r type=%r name=%r", id_msg, type_message, file_name)
+
     is_reaction = (
         type_ in ("outgoingMessageReaction", "incomingMessageReaction")
         or type_message == "reactionMessage"
@@ -1993,19 +2008,23 @@ def webhook():
     )
     log.info("orig_text from webhook: %r (quoted_type=%r is_audio=%s)", orig_text[:100] if orig_text else "", quoted_type, is_audio_reaction)
 
-    # extract file attachment info from quoted message (image/video/document)
+    # extract file attachment info — first try webhook payload, then local cache
     _FILE_TYPES = ("imageMessage", "videoMessage", "documentMessage")
     quoted_file_data = (quoted.get("fileMessageData") or {})
-    attachment_url  = quoted_file_data.get("downloadUrl", "") or quoted.get("downloadUrl", "")
+    attachment_url  = (quoted_file_data.get("downloadUrl", "") or quoted.get("downloadUrl", "")
+                       or (_audio_url_cache.get(stanza_id, "") if stanza_id else ""))
     attachment_name = quoted_file_data.get("fileName", "") or quoted.get("fileName", "")
+    is_file_reaction = quoted_type in _FILE_TYPES or (bool(stanza_id) and attachment_url and not is_audio_reaction)
     # use caption or filename as orig_text fallback for file messages
-    if not orig_text and quoted_type in _FILE_TYPES:
+    if not orig_text and is_file_reaction:
+        cached_text = _msg_text_cache.get(stanza_id, "") if stanza_id else ""
         orig_text = (
             quoted_file_data.get("caption", "")
             or quoted.get("caption", "")
-            or (f"[{attachment_name}]" if attachment_name else f"[{quoted_type.replace('Message','')}]")
+            or cached_text
+            or (f"[{attachment_name}]" if attachment_name else "[קובץ מצורף]")
         )
-        log.info("File message: type=%r attachment_url=%r name=%r orig_text=%r",
+        log.info("File reaction: type=%r attachment_url=%r name=%r orig_text=%r",
                  quoted_type, attachment_url[:60] if attachment_url else "", attachment_name, orig_text)
 
     # for audio reactions: transcribe first (also populates cache for rule flow below)
