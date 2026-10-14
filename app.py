@@ -69,7 +69,7 @@ TOKEN_FILE          = DATA_DIR / "gmail_token.json"
 # so that subsequent reaction webhooks can retrieve the original text locally
 # without calling getChatHistory (which times out on Railway).
 _msg_text_cache: dict = {}
-_MSG_CACHE_MAX = 500  # keep only the most recent N messages
+_MSG_CACHE_MAX = 1000  # keep only the most recent N messages
 CALENDAR_TOKEN_FILE = DATA_DIR / "calendar_token.json"
 
 # Two separate Google connections:
@@ -1222,6 +1222,8 @@ def _poll_calendar_changes():
             event = service.events().get(calendarId=calendar_id, eventId=t["calendar_event_id"]).execute()
         except HttpError as e:
             if e.resp.status == 404:
+                if t.get("pending_question_type") == "removed_confirmation":
+                    continue  # already asked, waiting for reply
                 q = green_api_send_message(
                     chat_id,
                     f"ראיתי שהסרת את '{(t.get('original_text') or '')[:60]}' מהיומן — בוצע או לתזמן מחדש?"
@@ -1230,6 +1232,7 @@ def _poll_calendar_changes():
                     t["id"],
                     pending_question_type="removed_confirmation",
                     pending_question_message_id=q.get("idMessage"),
+                    calendar_event_id=None,
                 )
             else:
                 log.warning("Could not check calendar event for task %s: %s", t["id"], e)
