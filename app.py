@@ -2065,7 +2065,8 @@ def webhook():
     cfg_early = load_config()
     transcription_emoji = cfg_early.get("transcription_emoji", "")
     personal_chat_early = cfg_early.get("personal_whatsapp_chat_id", "")
-    if transcription_emoji and reaction == transcription_emoji and personal_chat_early:
+    _VS = "️︎"  # Unicode variation selectors
+    if transcription_emoji and reaction.strip(_VS) == transcription_emoji.strip(_VS) and personal_chat_early:
         contact_label = sender_name or get_contact_name(chat_id) or chat_id
         if orig_text:
             msg_out = f"🎙️ תמלול | {contact_label}\n\n{orig_text}"
